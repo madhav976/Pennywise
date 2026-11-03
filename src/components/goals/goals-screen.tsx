@@ -681,14 +681,14 @@ export function GoalsScreen() {
                     key={item.id}
                     type="button"
                     onClick={() => setGoalIcon(item.id)}
-                    className={`min-h-[72px] p-1.5 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
+                    className={`min-h-[68px] p-1.5 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
                       selected
                         ? 'bg-[#191B19] border-[#191B19] text-[#DFFF52] shadow-sm ring-2 ring-[#191B19]'
                         : 'bg-[#F5F7F3] border-[#E7EBE5] text-[#191B19] hover:bg-white hover:border-[#191B19]'
                     }`}
                   >
                     <PwIcon name={item.icon} className="w-5 h-5 shrink-0" />
-                    <span className="text-[10px] font-medium leading-[1.2] text-center text-current line-clamp-2 px-0.5 break-words tracking-tight">
+                    <span className="text-[10px] font-medium leading-tight text-center text-current line-clamp-2 px-0.5">
                       {item.label}
                     </span>
                   </button>

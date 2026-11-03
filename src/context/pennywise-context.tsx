@@ -423,80 +423,26 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
 
     async function initSession() {
       try {
-        if (isSupabaseConfigured()) {
-          const supabase = createClient();
-          if (supabase) {
-            const {
-              data: { user: authUser },
-            } = await supabase.auth.getUser();
+        setIsDataLoading(true);
 
+        // Fetch authoritative database ledger and user profile from /api/ledger
+        const res = await fetch('/api/ledger');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
             if (mounted) {
-              if (authUser) {
-                const profile: UserProfile = {
-                  id: authUser.id,
-                  email: authUser.email || '',
-                  fullName:
-                    authUser.user_metadata?.full_name ||
-                    authUser.email?.split('@')[0] ||
-                    'Pennywise User',
-                  currency: authUser.user_metadata?.currency || 'INR',
-                  createdAt: authUser.created_at,
-                };
-                setUser(profile);
-                setIsDataLoading(true);
-                const res = await fetchUserLedgerAction();
-                if (mounted && res.data) {
-                  persistLedger(profile.id, res.data);
-                }
-              } else {
-                setUser(null);
-              }
+              setUser(json.data.user);
+              persistLedger(json.data.user.id, json.data.ledger);
             }
-
-            // Real-time auth state subscription
-            const {
-              data: { subscription },
-            } = supabase.auth.onAuthStateChange(async (event, session) => {
-              if (!mounted) return;
-              if (session?.user) {
-                const profile: UserProfile = {
-                  id: session.user.id,
-                  email: session.user.email || '',
-                  fullName:
-                    session.user.user_metadata?.full_name ||
-                    session.user.email?.split('@')[0] ||
-                    'Pennywise User',
-                  currency: session.user.user_metadata?.currency || 'INR',
-                  createdAt: session.user.created_at,
-                };
-                setUser(profile);
-                const res = await fetchUserLedgerAction();
-                if (mounted && res.data) {
-                  persistLedger(profile.id, res.data);
-                }
-              } else if (event === 'SIGNED_OUT') {
-                setUser(null);
-                setLedger(EMPTY_LEDGER);
-              }
-            });
-
-            return () => {
-              subscription.unsubscribe();
-            };
           }
         } else if (typeof window !== 'undefined') {
           // Local storage fallback for offline / unconfigured demo mode
-          const explicitlySignedOut =
-            localStorage.getItem(AUTH_SIGNED_OUT_FLAG_KEY) === 'true';
           const savedUserRaw = localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
-
-          if (savedUserRaw) {
+          if (savedUserRaw && mounted) {
             const parsedUser: UserProfile = JSON.parse(savedUserRaw);
-            if (mounted && parsedUser?.id) {
+            if (parsedUser?.id) {
               setUser(parsedUser);
-              const savedLedgerRaw = localStorage.getItem(
-                getLedgerStorageKey(parsedUser.id)
-              );
+              const savedLedgerRaw = localStorage.getItem(getLedgerStorageKey(parsedUser.id));
               if (savedLedgerRaw) {
                 const parsedLedger: LedgerState = JSON.parse(savedLedgerRaw);
                 persistLedger(parsedUser.id, {
@@ -509,11 +455,35 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
                 });
               }
             }
-          } else if (explicitlySignedOut) {
-            if (mounted) setUser(null);
-          } else {
-            // Default workspace when not configured
-            setUser(DEFAULT_USER_PROFILE);
+          }
+        }
+
+        // Real-time auth state subscription if Supabase client is available
+        if (isSupabaseConfigured()) {
+          const supabase = createClient();
+          if (supabase) {
+            const {
+              data: { subscription },
+            } = supabase.auth.onAuthStateChange(async (event, session) => {
+              if (!mounted) return;
+              if (session?.user || event === 'SIGNED_IN') {
+                const refreshRes = await fetch('/api/ledger');
+                if (refreshRes.ok) {
+                  const rJson = await refreshRes.json();
+                  if (rJson.success && rJson.data && mounted) {
+                    setUser(rJson.data.user);
+                    persistLedger(rJson.data.user.id, rJson.data.ledger);
+                  }
+                }
+              } else if (event === 'SIGNED_OUT') {
+                setUser(null);
+                setLedger(EMPTY_LEDGER);
+              }
+            });
+
+            return () => {
+              subscription.unsubscribe();
+            };
           }
         }
       } catch (err) {
@@ -768,7 +738,7 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updateProfile = useCallback(
-    (updates: { fullName?: string; currency?: string }) => {
+    async (updates: { fullName?: string; currency?: string }) => {
       if (!user) return;
       const updated: UserProfile = {
         ...user,
@@ -776,16 +746,20 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
         currency: updates.currency || user.currency,
       };
       setUser(updated);
-      localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(updated));
 
-      const rawRegistry = localStorage.getItem(USERS_REGISTRY_STORAGE_KEY);
-      if (rawRegistry) {
-        const registry = JSON.parse(rawRegistry);
-        if (registry[user.email]) {
-          registry[user.email].profile = updated;
-          localStorage.setItem(USERS_REGISTRY_STORAGE_KEY, JSON.stringify(registry));
-        }
+      try {
+        await fetch('/api/profile', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fullName: updated.fullName,
+            currency: updated.currency,
+          }),
+        });
+      } catch (e) {
+        console.warn('Failed to persist profile to server:', e);
       }
+
       showToast('success', 'Profile preferences updated');
     },
     [user, showToast]
@@ -820,41 +794,40 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
           ? roundMoney(Math.max(0, input.monthlyIncome))
           : undefined;
 
-      const serverRes = await createAccountServerAction({
-        name: trimmedName,
-        accountType: input.accountType,
-        openingBalance: roundMoney(input.openingBalance),
-        monthlyIncome: parsedMonthlyIncome,
-        icon: input.icon || 'Landmark',
-        description: input.description?.trim(),
-      });
+      try {
+        const res = await fetch('/api/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: trimmedName,
+            accountType: input.accountType,
+            openingBalance: roundMoney(input.openingBalance),
+            monthlyIncome: parsedMonthlyIncome,
+            icon: input.icon || 'Landmark',
+            description: input.description?.trim(),
+          }),
+        });
 
-      if (!serverRes.success) {
-        return { ok: false, error: serverRes.error };
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to create account';
+          showToast('error', err);
+          return { ok: false, error: err };
+        }
+
+        const newAcc: Account = json.data;
+        persistLedger(user.id, {
+          ...ledger,
+          accounts: [...ledger.accounts, newAcc],
+        });
+
+        showToast('success', `${trimmedName} created`);
+        return { ok: true, account: newAcc };
+      } catch (err: any) {
+        const msg = err.message || 'Network error creating account';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      const now = new Date().toISOString();
-      const newAcc: Account = {
-        id: serverRes.mode === 'supabase' && serverRes.id ? serverRes.id : generateId('acc'),
-        userId: user.id,
-        name: trimmedName,
-        accountType: input.accountType,
-        openingBalance: roundMoney(input.openingBalance),
-        currentBalance: roundMoney(input.openingBalance),
-        monthlyIncome: parsedMonthlyIncome,
-        icon: input.icon || 'Landmark',
-        description: input.description?.trim() || undefined,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      persistLedger(user.id, {
-        ...ledger,
-        accounts: [...ledger.accounts, newAcc],
-      });
-
-      showToast('success', `${trimmedName} created`);
-      return { ok: true, account: newAcc };
     },
     [user, ledger, persistLedger, showToast]
   );
@@ -877,45 +850,39 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: 'Opening balance must be 0 or greater.' };
       }
 
-      if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          await supabase
-            .from('accounts')
-            .update({
-              name: trimmedName,
-              account_type: updates.accountType,
-              opening_balance: roundMoney(updates.openingBalance),
-              icon: updates.icon,
-              description: updates.description?.trim() || null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', id)
-            .eq('user_id', user.id);
+      try {
+        const res = await fetch(`/api/accounts/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: trimmedName,
+            accountType: updates.accountType,
+            openingBalance: roundMoney(updates.openingBalance),
+            icon: updates.icon || 'Landmark',
+            description: updates.description?.trim(),
+          }),
+        });
+
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to update account';
+          showToast('error', err);
+          return { ok: false, error: err };
         }
+
+        const updatedAccount: Account = json.data;
+        persistLedger(user.id, {
+          ...ledger,
+          accounts: ledger.accounts.map((a) => (a.id === id ? updatedAccount : a)),
+        });
+
+        showToast('success', `${trimmedName} updated`);
+        return { ok: true, account: updatedAccount };
+      } catch (err: any) {
+        const msg = err.message || 'Error updating account';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      const nextAccounts = ledger.accounts.map((acc) =>
-        acc.id === id
-          ? {
-              ...acc,
-              name: trimmedName,
-              accountType: updates.accountType,
-              openingBalance: roundMoney(updates.openingBalance),
-              icon: updates.icon,
-              description: updates.description?.trim() || undefined,
-              updatedAt: new Date().toISOString(),
-            }
-          : acc
-      );
-
-      persistLedger(user.id, {
-        ...ledger,
-        accounts: nextAccounts,
-      });
-
-      showToast('success', 'Account updated');
-      return { ok: true };
     },
     [user, ledger, persistLedger, showToast]
   );
@@ -938,25 +905,30 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: msg };
       }
 
-      if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          const { error } = await supabase
-            .from('accounts')
-            .delete()
-            .eq('id', id)
-            .eq('user_id', user.id);
-          if (error) return { ok: false, error: error.message };
+      try {
+        const res = await fetch(`/api/accounts/${id}`, {
+          method: 'DELETE',
+        });
+
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to delete account';
+          showToast('error', err);
+          return { ok: false, error: err };
         }
+
+        persistLedger(user.id, {
+          ...ledger,
+          accounts: ledger.accounts.filter((a) => a.id !== id),
+        });
+
+        showToast('info', 'Account deleted');
+        return { ok: true };
+      } catch (err: any) {
+        const msg = err.message || 'Error deleting account';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      persistLedger(user.id, {
-        ...ledger,
-        accounts: ledger.accounts.filter((a) => a.id !== id),
-      });
-
-      showToast('info', 'Account deleted');
-      return { ok: true };
     },
     [user, ledger, persistLedger, showToast]
   );
@@ -1021,91 +993,89 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
         };
       }
 
-      const serverRes = await createTransactionServerAction({
-        accountId: input.accountId,
-        title: cleanTitle,
-        amount: cleanAmount,
-        transactionType: input.transactionType,
-        category: input.category,
-        transactionDate: input.transactionDate,
-        taxAmount: input.taxAmount,
-        notes: input.notes?.trim(),
-        receipt: input.receipt,
-      });
+      try {
+        const res = await fetch('/api/transactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountId: input.accountId,
+            title: cleanTitle,
+            amount: cleanAmount,
+            transactionType: input.transactionType,
+            category: input.category,
+            transactionDate: input.transactionDate,
+            taxAmount: input.taxAmount,
+            notes: input.notes?.trim(),
+            receipt: input.receipt,
+          }),
+        });
 
-      if (!serverRes.success) {
-        return { ok: false, error: serverRes.error };
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to record transaction';
+          showToast('error', err);
+          return { ok: false, error: err };
+        }
+
+        const newTx: Transaction = json.data;
+        const updatedAcc = json.updatedAccount;
+
+        let nextReceipts = ledger.receipts;
+        if (input.receipt && newTx.receiptId) {
+          const newReceipt: ReceiptRecord = {
+            id: newTx.receiptId,
+            userId: user.id,
+            merchantName: input.receipt.merchantName,
+            receiptDate: input.receipt.receiptDate,
+            totalAmount: roundMoney(input.receipt.totalAmount),
+            taxAmount:
+              input.receipt.taxAmount !== undefined
+                ? roundMoney(input.receipt.taxAmount)
+                : undefined,
+            suggestedCategory: input.receipt.suggestedCategory,
+            receiptHash: input.receipt.receiptHash,
+            rawOcrText: input.receipt.rawOcrText,
+            items: input.receipt.items,
+            createdAt: newTx.createdAt,
+          };
+          nextReceipts = [newReceipt, ...ledger.receipts];
+        }
+
+        const nextAccounts = updatedAcc
+          ? ledger.accounts.map((a) =>
+              a.id === updatedAcc.id ? { ...a, currentBalance: updatedAcc.currentBalance } : a
+            )
+          : ledger.accounts;
+
+        const nextTransactions = [newTx, ...ledger.transactions].sort(
+          (a, b) =>
+            b.transactionDate.localeCompare(a.transactionDate) ||
+            b.createdAt.localeCompare(a.createdAt)
+        );
+
+        persistLedger(user.id, {
+          ...ledger,
+          accounts: nextAccounts,
+          receipts: nextReceipts,
+          transactions: nextTransactions,
+        });
+
+        const txMonth = input.transactionDate.slice(0, 7);
+        if (txMonth) {
+          setSelectedMonth(txMonth);
+        }
+
+        showToast(
+          'success',
+          input.transactionType === 'expense' ? 'Expense recorded' : 'Income credited',
+          `${cleanTitle} · ${targetAccount.name}`
+        );
+        return { ok: true, transaction: newTx };
+      } catch (err: any) {
+        const msg = err.message || 'Error recording transaction';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      const now = new Date().toISOString();
-      let nextReceipts = ledger.receipts;
-      let receiptId: string | undefined =
-        serverRes.mode === 'supabase' && serverRes.receiptId
-          ? serverRes.receiptId
-          : undefined;
-
-      if (input.receipt) {
-        receiptId = receiptId || generateId('rcpt');
-        const newReceipt: ReceiptRecord = {
-          id: receiptId,
-          userId: user.id,
-          merchantName: input.receipt.merchantName,
-          receiptDate: input.receipt.receiptDate,
-          totalAmount: roundMoney(input.receipt.totalAmount),
-          taxAmount:
-            input.receipt.taxAmount !== undefined
-              ? roundMoney(input.receipt.taxAmount)
-              : undefined,
-          suggestedCategory: input.receipt.suggestedCategory,
-          receiptHash: input.receipt.receiptHash,
-          rawOcrText: input.receipt.rawOcrText,
-          items: input.receipt.items,
-          createdAt: now,
-        };
-        nextReceipts = [newReceipt, ...ledger.receipts];
-      }
-
-      const newTx: Transaction = {
-        id: serverRes.mode === 'supabase' && serverRes.id ? serverRes.id : generateId('tx'),
-        userId: user.id,
-        accountId: input.accountId,
-        receiptId,
-        title: cleanTitle,
-        amount: cleanAmount,
-        transactionType: input.transactionType,
-        category: input.category,
-        transactionDate: input.transactionDate,
-        taxAmount:
-          input.taxAmount !== undefined ? roundMoney(input.taxAmount) : undefined,
-        notes: input.notes?.trim() || undefined,
-        receiptItems: input.receipt?.items,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      const nextTransactions = [newTx, ...ledger.transactions].sort(
-        (a, b) =>
-          b.transactionDate.localeCompare(a.transactionDate) ||
-          b.createdAt.localeCompare(a.createdAt)
-      );
-
-      persistLedger(user.id, {
-        ...ledger,
-        receipts: nextReceipts,
-        transactions: nextTransactions,
-      });
-
-      const txMonth = input.transactionDate.slice(0, 7);
-      if (txMonth) {
-        setSelectedMonth(txMonth);
-      }
-
-      showToast(
-        'success',
-        input.transactionType === 'expense' ? 'Expense recorded' : 'Income credited',
-        `${cleanTitle} · ${targetAccount.name}`
-      );
-      return { ok: true, transaction: newTx };
     },
     [user, ledger, isReceiptHashDuplicate, persistLedger, showToast]
   );
@@ -1132,62 +1102,58 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
       const cleanAmount = roundMoney(updates.amount);
       if (cleanAmount <= 0) return { ok: false, error: 'Amount must be greater than zero.' };
 
-      if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          await supabase
-            .from('transactions')
-            .update({
-              account_id: updates.accountId,
-              title: cleanTitle,
-              amount: cleanAmount,
-              transaction_type: updates.transactionType,
-              category: updates.category,
-              transaction_date: updates.transactionDate,
-              tax_amount:
-                updates.taxAmount !== undefined ? roundMoney(updates.taxAmount) : null,
-              notes: updates.notes?.trim() || null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', id)
-            .eq('user_id', user.id);
+      try {
+        const res = await fetch(`/api/transactions/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountId: updates.accountId,
+            title: cleanTitle,
+            amount: cleanAmount,
+            category: updates.category,
+            transactionDate: updates.transactionDate,
+            taxAmount: updates.taxAmount,
+            notes: updates.notes,
+          }),
+        });
+
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to update transaction';
+          showToast('error', err);
+          return { ok: false, error: err };
         }
+
+        const updatedTx: Transaction = json.data;
+        const updatedAcc = json.updatedAccount;
+
+        const nextAccounts = updatedAcc
+          ? ledger.accounts.map((a) =>
+              a.id === updatedAcc.id ? { ...a, currentBalance: updatedAcc.currentBalance } : a
+            )
+          : ledger.accounts;
+
+        const nextTransactions = ledger.transactions
+          .map((tx) => (tx.id === id ? updatedTx : tx))
+          .sort(
+            (a, b) =>
+              b.transactionDate.localeCompare(a.transactionDate) ||
+              b.createdAt.localeCompare(a.createdAt)
+          );
+
+        persistLedger(user.id, {
+          ...ledger,
+          accounts: nextAccounts,
+          transactions: nextTransactions,
+        });
+
+        showToast('success', 'Transaction updated');
+        return { ok: true, transaction: updatedTx };
+      } catch (err: any) {
+        const msg = err.message || 'Error updating transaction';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      const nextTransactions = ledger.transactions
-        .map((tx) =>
-          tx.id === id
-            ? {
-                ...tx,
-                accountId: updates.accountId,
-                title: cleanTitle,
-                amount: cleanAmount,
-                transactionType: updates.transactionType,
-                category: updates.category,
-                transactionDate: updates.transactionDate,
-                taxAmount:
-                  updates.taxAmount !== undefined
-                    ? roundMoney(updates.taxAmount)
-                    : undefined,
-                notes: updates.notes?.trim() || undefined,
-                receiptItems: updates.receiptItems ?? tx.receiptItems,
-                updatedAt: new Date().toISOString(),
-              }
-            : tx
-        )
-        .sort(
-          (a, b) =>
-            b.transactionDate.localeCompare(a.transactionDate) ||
-            b.createdAt.localeCompare(a.createdAt)
-        );
-
-      persistLedger(user.id, {
-        ...ledger,
-        transactions: nextTransactions,
-      });
-
-      showToast('success', 'Transaction updated');
-      return { ok: true };
     },
     [user, ledger, persistLedger, showToast]
   );
@@ -1198,34 +1164,41 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
       const target = ledger.transactions.find((t) => t.id === id);
       if (!target) return { ok: false, error: 'Transaction not found.' };
 
-      if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          await supabase
-            .from('transactions')
-            .delete()
-            .eq('id', id)
-            .eq('user_id', user.id);
-          if (target.receiptId) {
-            await supabase
-              .from('receipts')
-              .delete()
-              .eq('id', target.receiptId)
-              .eq('user_id', user.id);
-          }
+      try {
+        const res = await fetch(`/api/transactions/${id}`, {
+          method: 'DELETE',
+        });
+
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to delete transaction';
+          showToast('error', err);
+          return { ok: false, error: err };
         }
+
+        const updatedAcc = json.updatedAccount;
+        const nextAccounts = updatedAcc
+          ? ledger.accounts.map((a) =>
+              a.id === updatedAcc.id ? { ...a, currentBalance: updatedAcc.currentBalance } : a
+            )
+          : ledger.accounts;
+
+        persistLedger(user.id, {
+          ...ledger,
+          accounts: nextAccounts,
+          transactions: ledger.transactions.filter((t) => t.id !== id),
+          receipts: target.receiptId
+            ? ledger.receipts.filter((r) => r.id !== target.receiptId)
+            : ledger.receipts,
+        });
+
+        showToast('info', 'Transaction deleted & balance restored');
+        return { ok: true };
+      } catch (err: any) {
+        const msg = err.message || 'Error deleting transaction';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      persistLedger(user.id, {
-        ...ledger,
-        transactions: ledger.transactions.filter((t) => t.id !== id),
-        receipts: target.receiptId
-          ? ledger.receipts.filter((r) => r.id !== target.receiptId)
-          : ledger.receipts,
-      });
-
-      showToast('info', 'Transaction deleted & balance restored');
-      return { ok: true };
     },
     [user, ledger, persistLedger, showToast]
   );
@@ -1266,76 +1239,55 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const now = new Date().toISOString();
-      const today = now.slice(0, 10);
-      let goalId = generateId('goal');
-
-      if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          const { data: gData, error: gErr } = await supabase
-            .from('savings_goals')
-            .insert({
-              user_id: user.id,
-              name: cleanName,
-              target_amount: targetAmt,
-              saved_amount: initContrib,
-              target_date: input.targetDate || null,
-              icon: input.icon || 'smartphone',
-            })
-            .select('id')
-            .single();
-
-          if (gErr) return { ok: false, error: gErr.message };
-          if (gData) goalId = gData.id;
-
-          if (initContrib > 0 && input.sourceAccountId) {
-            await supabase.from('goal_contributions').insert({
-              user_id: user.id,
-              goal_id: goalId,
-              source_account_id: input.sourceAccountId,
-              amount: initContrib,
-              contribution_date: today,
-              notes: 'Initial contribution',
-            });
-          }
-        }
-      }
-
-      const newGoal: SavingsGoal = {
-        id: goalId,
-        userId: user.id,
-        name: cleanName,
-        targetAmount: targetAmt,
-        savedAmount: initContrib,
-        targetDate: input.targetDate || undefined,
-        icon: input.icon || 'smartphone',
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      const nextContributions = [...ledger.contributions];
-      if (initContrib > 0 && input.sourceAccountId) {
-        nextContributions.unshift({
-          id: generateId('contrib'),
-          userId: user.id,
-          goalId,
-          sourceAccountId: input.sourceAccountId,
-          amount: initContrib,
-          contributionDate: today,
-          notes: 'Initial contribution',
-          createdAt: now,
+      try {
+        const res = await fetch('/api/goals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: cleanName,
+            targetAmount: targetAmt,
+            targetDate: input.targetDate,
+            icon: input.icon || 'smartphone',
+            initialContribution: initContrib,
+            initialSourceAccountId: input.sourceAccountId,
+          }),
         });
+
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to create savings goal';
+          showToast('error', err);
+          return { ok: false, error: err };
+        }
+
+        const newGoal: SavingsGoal = json.data;
+        const contribRecord = json.contribution;
+        const updatedAcc = json.updatedAccount;
+
+        const nextAccounts = updatedAcc
+          ? ledger.accounts.map((a) =>
+              a.id === updatedAcc.id ? { ...a, currentBalance: updatedAcc.currentBalance } : a
+            )
+          : ledger.accounts;
+
+        const nextContributions = contribRecord
+          ? [contribRecord, ...ledger.contributions]
+          : ledger.contributions;
+
+        persistLedger(user.id, {
+          ...ledger,
+          accounts: nextAccounts,
+          goals: [...ledger.goals, newGoal],
+          contributions: nextContributions,
+        });
+
+        showToast('success', `Goal "${cleanName}" created`);
+        return { ok: true, goal: newGoal };
+      } catch (err: any) {
+        const msg = err.message || 'Error creating goal';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      persistLedger(user.id, {
-        ...ledger,
-        goals: [...ledger.goals, newGoal],
-        contributions: nextContributions,
-      });
-
-      showToast('success', `Goal "${cleanName}" created`);
-      return { ok: true, goal: newGoal };
     },
     [user, ledger, persistLedger, showToast]
   );
@@ -1356,41 +1308,38 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
       const targetAmt = roundMoney(updates.targetAmount);
       if (targetAmt <= 0) return { ok: false, error: 'Target amount must be greater than zero.' };
 
-      if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          await supabase
-            .from('savings_goals')
-            .update({
-              name: cleanName,
-              target_amount: targetAmt,
-              target_date: updates.targetDate || null,
-              icon: updates.icon,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', id)
-            .eq('user_id', user.id);
+      try {
+        const res = await fetch(`/api/goals/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: cleanName,
+            targetAmount: targetAmt,
+            targetDate: updates.targetDate,
+            icon: updates.icon || 'smartphone',
+          }),
+        });
+
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to update goal';
+          showToast('error', err);
+          return { ok: false, error: err };
         }
+
+        const updatedGoal: SavingsGoal = json.data;
+        persistLedger(user.id, {
+          ...ledger,
+          goals: ledger.goals.map((g) => (g.id === id ? updatedGoal : g)),
+        });
+
+        showToast('success', 'Savings goal updated');
+        return { ok: true, goal: updatedGoal };
+      } catch (err: any) {
+        const msg = err.message || 'Error updating goal';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      persistLedger(user.id, {
-        ...ledger,
-        goals: ledger.goals.map((g) =>
-          g.id === id
-            ? {
-                ...g,
-                name: cleanName,
-                targetAmount: targetAmt,
-                targetDate: updates.targetDate || undefined,
-                icon: updates.icon,
-                updatedAt: new Date().toISOString(),
-              }
-            : g
-        ),
-      });
-
-      showToast('success', 'Savings goal updated');
-      return { ok: true };
     },
     [user, ledger, persistLedger, showToast]
   );
@@ -1399,26 +1348,41 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
     async (id: string) => {
       if (!user) return { ok: false, error: 'Not signed in.' };
 
-      if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          await supabase
-            .from('savings_goals')
-            .delete()
-            .eq('id', id)
-            .eq('user_id', user.id);
+      try {
+        const res = await fetch(`/api/goals/${id}`, {
+          method: 'DELETE',
+        });
+
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to delete goal';
+          showToast('error', err);
+          return { ok: false, error: err };
         }
+
+        const updatedAccountsList: Array<{ id: string; currentBalance: number }> =
+          json.updatedAccounts || [];
+
+        const nextAccounts = ledger.accounts.map((a) => {
+          const matched = updatedAccountsList.find((u) => u.id === a.id);
+          return matched ? { ...a, currentBalance: matched.currentBalance } : a;
+        });
+
+        persistLedger(user.id, {
+          ...ledger,
+          accounts: nextAccounts,
+          goals: ledger.goals.filter((g) => g.id !== id),
+          contributions: ledger.contributions.filter((c) => c.goalId !== id),
+          recurringRules: ledger.recurringRules.filter((r) => r.goalId !== id),
+        });
+
+        showToast('info', 'Goal removed & allocated funds returned to accounts');
+        return { ok: true };
+      } catch (err: any) {
+        const msg = err.message || 'Error deleting goal';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      persistLedger(user.id, {
-        ...ledger,
-        goals: ledger.goals.filter((g) => g.id !== id),
-        contributions: ledger.contributions.filter((c) => c.goalId !== id),
-        recurringRules: ledger.recurringRules.filter((r) => r.goalId !== id),
-      });
-
-      showToast('info', 'Goal removed & allocated funds returned to accounts');
-      return { ok: true };
     },
     [user, ledger, persistLedger, showToast]
   );
@@ -1448,47 +1412,54 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
         };
       }
 
-      const dateStr = input.contributionDate || new Date().toISOString().slice(0, 10);
-      let contribId = generateId('contrib');
+      try {
+        const res = await fetch('/api/goals/contributions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            goalId: input.goalId,
+            sourceAccountId: input.sourceAccountId,
+            amount: amt,
+            contributionDate: input.contributionDate,
+            notes: input.notes?.trim(),
+          }),
+        });
 
-      if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          const { data, error } = await supabase
-            .from('goal_contributions')
-            .insert({
-              user_id: user.id,
-              goal_id: input.goalId,
-              source_account_id: input.sourceAccountId,
-              amount: amt,
-              contribution_date: dateStr,
-              notes: input.notes?.trim() || null,
-            })
-            .select('id')
-            .single();
-          if (error) return { ok: false, error: error.message };
-          if (data) contribId = data.id;
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to record contribution';
+          showToast('error', err);
+          return { ok: false, error: err };
         }
+
+        const newContrib: GoalContribution = json.data;
+        const updatedAcc = json.updatedAccount;
+        const updatedGoal = json.updatedGoal;
+
+        const nextAccounts = updatedAcc
+          ? ledger.accounts.map((a) =>
+              a.id === updatedAcc.id ? { ...a, currentBalance: updatedAcc.currentBalance } : a
+            )
+          : ledger.accounts;
+
+        const nextGoals = updatedGoal
+          ? ledger.goals.map((g) => (g.id === updatedGoal.id ? updatedGoal : g))
+          : ledger.goals;
+
+        persistLedger(user.id, {
+          ...ledger,
+          accounts: nextAccounts,
+          goals: nextGoals,
+          contributions: [newContrib, ...ledger.contributions],
+        });
+
+        showToast('success', `Allocated to ${goal.name}`, `From ${account.name}`);
+        return { ok: true };
+      } catch (err: any) {
+        const msg = err.message || 'Error recording contribution';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      const newContrib: GoalContribution = {
-        id: contribId,
-        userId: user.id,
-        goalId: input.goalId,
-        sourceAccountId: input.sourceAccountId,
-        amount: amt,
-        contributionDate: dateStr,
-        notes: input.notes?.trim() || undefined,
-        createdAt: new Date().toISOString(),
-      };
-
-      persistLedger(user.id, {
-        ...ledger,
-        contributions: [newContrib, ...ledger.contributions],
-      });
-
-      showToast('success', `Allocated to ${goal.name}`, `From ${account.name}`);
-      return { ok: true };
     },
     [user, ledger, persistLedger, showToast]
   );
@@ -1511,73 +1482,47 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: 'Contribution amount must be greater than zero.' };
       }
 
-      const existing = ledger.recurringRules.find((r) => r.goalId === input.goalId);
-      const now = new Date().toISOString();
+      try {
+        const res = await fetch('/api/goals/recurring', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            goalId: input.goalId,
+            sourceAccountId: input.sourceAccountId,
+            amount: amt,
+            frequency: input.frequency,
+            startDate: input.startDate,
+            isEnabled: input.isEnabled,
+          }),
+        });
 
-      let ruleId = existing?.id || generateId('rec');
-
-      if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          const { data, error } = await supabase
-            .from('recurring_contributions')
-            .upsert(
-              {
-                id: existing?.id,
-                user_id: user.id,
-                goal_id: input.goalId,
-                source_account_id: input.sourceAccountId,
-                amount: amt,
-                frequency: input.frequency,
-                start_date: input.startDate,
-                next_run_date: input.startDate,
-                is_enabled: input.isEnabled,
-                updated_at: now,
-              },
-              { onConflict: 'goal_id' }
-            )
-            .select('id')
-            .single();
-          if (!error && data) {
-            ruleId = data.id;
-          }
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to save recurring schedule';
+          showToast('error', err);
+          return { ok: false, error: err };
         }
+
+        const savedRule: RecurringContribution = json.data;
+        const otherRules = ledger.recurringRules.filter((r) => r.goalId !== input.goalId);
+
+        persistLedger(user.id, {
+          ...ledger,
+          recurringRules: [...otherRules, savedRule],
+        });
+
+        showToast(
+          'success',
+          input.isEnabled
+            ? 'Automated savings allocation enabled'
+            : 'Automated savings allocation paused'
+        );
+        return { ok: true, rule: savedRule };
+      } catch (err: any) {
+        const msg = err.message || 'Error saving recurring schedule';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      const nextRule: RecurringContribution = {
-        id: ruleId,
-        userId: user.id,
-        goalId: input.goalId,
-        sourceAccountId: input.sourceAccountId,
-        amount: amt,
-        frequency: input.frequency,
-        startDate: input.startDate,
-        nextRunDate:
-          existing && existing.startDate === input.startDate
-            ? existing.nextRunDate
-            : input.startDate,
-        lastProcessedDate: existing?.lastProcessedDate,
-        isEnabled: input.isEnabled,
-        createdAt: existing?.createdAt || now,
-        updatedAt: now,
-      };
-
-      const nextRules = existing
-        ? ledger.recurringRules.map((r) => (r.goalId === input.goalId ? nextRule : r))
-        : [...ledger.recurringRules, nextRule];
-
-      persistLedger(user.id, {
-        ...ledger,
-        recurringRules: nextRules,
-      });
-
-      showToast(
-        'success',
-        input.isEnabled
-          ? 'Automated savings allocation enabled'
-          : 'Automated savings allocation paused'
-      );
-      return { ok: true };
     },
     [user, ledger, persistLedger, showToast]
   );
@@ -1585,30 +1530,47 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
   const toggleRecurringContribution = useCallback(
     async (ruleId: string, isEnabled: boolean) => {
       if (!user) return { ok: false, error: 'Not signed in.' };
+      const rule = ledger.recurringRules.find((r) => r.id === ruleId);
+      if (!rule) return { ok: false, error: 'Recurring rule not found.' };
 
-      if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          await supabase
-            .from('recurring_contributions')
-            .update({ is_enabled: isEnabled, updated_at: new Date().toISOString() })
-            .eq('id', ruleId)
-            .eq('user_id', user.id);
+      try {
+        const res = await fetch('/api/goals/recurring', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            goalId: rule.goalId,
+            sourceAccountId: rule.sourceAccountId,
+            amount: rule.amount,
+            frequency: rule.frequency,
+            startDate: rule.startDate,
+            isEnabled,
+          }),
+        });
+
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to toggle recurring schedule';
+          showToast('error', err);
+          return { ok: false, error: err };
         }
+
+        persistLedger(user.id, {
+          ...ledger,
+          recurringRules: ledger.recurringRules.map((r) =>
+            r.id === ruleId ? { ...r, isEnabled, updatedAt: new Date().toISOString() } : r
+          ),
+        });
+
+        showToast(
+          'info',
+          isEnabled ? 'Recurring contribution enabled' : 'Recurring contribution paused'
+        );
+        return { ok: true };
+      } catch (err: any) {
+        const msg = err.message || 'Error toggling recurring rule';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      persistLedger(user.id, {
-        ...ledger,
-        recurringRules: ledger.recurringRules.map((r) =>
-          r.id === ruleId ? { ...r, isEnabled, updatedAt: new Date().toISOString() } : r
-        ),
-      });
-
-      showToast(
-        'info',
-        isEnabled ? 'Recurring contribution enabled' : 'Recurring contribution paused'
-      );
-      return { ok: true };
     },
     [user, ledger, persistLedger, showToast]
   );
@@ -1617,24 +1579,30 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
     async (ruleId: string) => {
       if (!user) return { ok: false, error: 'Not signed in.' };
 
-      if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          await supabase
-            .from('recurring_contributions')
-            .delete()
-            .eq('id', ruleId)
-            .eq('user_id', user.id);
+      try {
+        const res = await fetch(`/api/goals/recurring?id=${ruleId}`, {
+          method: 'DELETE',
+        });
+
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          const err = json.error || 'Failed to delete schedule';
+          showToast('error', err);
+          return { ok: false, error: err };
         }
+
+        persistLedger(user.id, {
+          ...ledger,
+          recurringRules: ledger.recurringRules.filter((r) => r.id !== ruleId),
+        });
+
+        showToast('info', 'Automated contribution rule removed');
+        return { ok: true };
+      } catch (err: any) {
+        const msg = err.message || 'Error deleting recurring schedule';
+        showToast('error', msg);
+        return { ok: false, error: msg };
       }
-
-      persistLedger(user.id, {
-        ...ledger,
-        recurringRules: ledger.recurringRules.filter((r) => r.id !== ruleId),
-      });
-
-      showToast('info', 'Automated contribution rule removed');
-      return { ok: true };
     },
     [user, ledger, persistLedger, showToast]
   );

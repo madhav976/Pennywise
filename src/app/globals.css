@@ -178,7 +178,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .animate-fadeIn,
   .animate-slideUp,
-  .animate-sheetSlideUp,
   .animate-pageEnter,
   .animate-viewEnter,
   .animate-cameraScanSweep,

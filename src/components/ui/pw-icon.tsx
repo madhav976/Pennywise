@@ -342,11 +342,6 @@ export function MobileBottomSheet({
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
     }
-    const rafId = requestAnimationFrame(() => {
-      if (scrollContainerRef.current) {
-        scrollContainerRef.current.scrollTop = 0;
-      }
-    });
 
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -359,7 +354,6 @@ export function MobileBottomSheet({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => {
-      cancelAnimationFrame(rafId);
       document.body.style.overflow = originalOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
@@ -374,7 +368,7 @@ export function MobileBottomSheet({
       onClick={onClose}
     >
       <div
-        className={`w-full max-w-[430px] mx-auto bg-[#F5F7F3] rounded-t-[32px] sm:rounded-t-[36px] border-t border-[#E7EBE5] shadow-2xl flex flex-col overflow-hidden animate-sheetSlideUp max-h-[88vh] ${maxHeight} ${
+        className={`w-full max-w-[430px] mx-auto bg-[#F5F7F3] rounded-t-[32px] sm:rounded-t-[36px] border-t border-[#E7EBE5] shadow-2xl flex flex-col overflow-hidden animate-sheetSlideUp ${maxHeight} ${
           className || ''
         }`}
         onClick={(e) => e.stopPropagation()}
