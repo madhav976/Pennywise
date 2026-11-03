@@ -32,6 +32,8 @@ import {
   ArrowLeft,
   Camera,
   Check,
+  Eye,
+  EyeOff,
   Flashlight,
   PenLine,
   Plus,
@@ -40,6 +42,7 @@ import {
   SwitchCamera,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 
 export function AddExpenseSheet() {
@@ -87,6 +90,9 @@ export function AddExpenseSheet() {
   const [category, setCategory] = useState<TransactionCategoryName>('Food & Dining');
   const [categoryReasoning, setCategoryReasoning] = useState<string>('');
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<string>('UPI');
+  const [invoiceNumber, setInvoiceNumber] = useState<string>('');
+  const [isReceiptImageExpanded, setIsReceiptImageExpanded] = useState(false);
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<ReceiptItemInput[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
@@ -276,6 +282,9 @@ export function AddExpenseSheet() {
     setCategory('Food & Dining');
     setCategoryReasoning('');
     setSelectedAccountId(accounts[0]?.id || '');
+    setPaymentMethod('UPI');
+    setInvoiceNumber('');
+    setIsReceiptImageExpanded(false);
     setNotes('');
     setItems([]);
     setFormError(null);
@@ -287,15 +296,23 @@ export function AddExpenseSheet() {
     closeAddFlow();
   }
 
-  function populateFromExtraction(data: ScannedReceiptExtraction) {
+  function populateFromExtraction(
+    data: ScannedReceiptExtraction,
+    previewUrl?: string
+  ) {
     setExtraction(data);
+    if (previewUrl) {
+      setPreviewImageUrl(previewUrl);
+    }
     setTxType('expense');
-    setTitle(data.merchantName || 'Receipt Expense');
+    setTitle(data.merchantName || '');
     setAmount(data.totalAmount > 0 ? String(data.totalAmount) : '');
     setTaxAmount(data.taxAmount !== undefined ? String(data.taxAmount) : '');
     setTxDate(data.transactionDate || new Date().toISOString().slice(0, 10));
     setCategory(data.suggestedCategory || 'Other');
     setCategoryReasoning(data.categoryReasoning || '');
+    setPaymentMethod(data.paymentMethod || 'UPI');
+    setInvoiceNumber(data.invoiceNumber || '');
     setItems(data.items || []);
     setSelectedAccountId(accounts[0]?.id || '');
     setFormError(null);
@@ -320,27 +337,11 @@ export function AddExpenseSheet() {
     const objectUrl = URL.createObjectURL(file);
     setPreviewImageUrl(objectUrl);
     setIsScanning(true);
-    setScanStageText('Validating receipt image & reading text...');
+    setScanStageText('Analyzing receipt with Gemini Multimodal Vision AI...');
 
     try {
-      let extractedOcrText = '';
-
-      // Perform client-side OCR via Tesseract.js as fallback/companion to Gemini Vision
-      try {
-        setScanStageText('Running optical character recognition (OCR)...');
-        const Tesseract = await import('tesseract.js');
-        const ocrResult = await Tesseract.recognize(file, 'eng');
-        extractedOcrText = ocrResult?.data?.text || '';
-      } catch (ocrErr) {
-        console.warn('Client OCR skipped, relying on server AI pipeline:', ocrErr);
-      }
-
-      setScanStageText('Analyzing merchant, items & category with AI...');
       const formData = new FormData();
       formData.append('receipt', file);
-      if (extractedOcrText) {
-        formData.append('ocrText', extractedOcrText);
-      }
 
       const res = await fetch('/api/receipts/scan', {
         method: 'POST',
@@ -357,7 +358,7 @@ export function AddExpenseSheet() {
         data.isDuplicateWarning = true;
       }
 
-      populateFromExtraction(data);
+      populateFromExtraction(data, objectUrl);
     } catch (err: any) {
       setScanError(
         err?.message ||
@@ -984,40 +985,90 @@ export function AddExpenseSheet() {
       {/* STEP 2B & STEP 3: RECEIPT REVIEW SCREEN OR MANUAL ENTRY FORM */}
       {(activeAddMode === 'manual' || Boolean(extraction)) && (
         <form onSubmit={handleSubmitTransaction} className="space-y-4 animate-viewEnter">
-          {/* Receipt Extraction Banner & Warnings */}
-          {extraction && (
-            <div className="space-y-2.5">
-              <div className="p-3.5 rounded-2xl bg-[#EBF0E9] border border-[#D8DFD4] flex items-start justify-between gap-2">
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-[#DFFF52] text-[#191B19] flex items-center justify-center shrink-0 mt-0.5">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-[#191B19]">
-                      AI Receipt Review Required
-                    </p>
-                    <p className="text-[11px] text-[#777F77] mt-0.5">
-                      {categoryReasoning ||
-                        'Verify or edit the extracted fields below before confirming.'}
-                    </p>
-                  </div>
-                </div>
+          {/* Expanded Receipt Image Lightbox Modal */}
+          {isReceiptImageExpanded && previewImageUrl && (
+            <div className="fixed inset-0 z-[120] bg-black/85 flex flex-col items-center justify-center p-4 animate-fadeIn">
+              <div className="relative max-w-sm w-full max-h-[85vh] flex flex-col items-center">
                 <button
                   type="button"
-                  onClick={() => setExtraction(null)}
-                  className="text-[11px] font-semibold text-[#191B19] underline shrink-0"
+                  onClick={() => setIsReceiptImageExpanded(false)}
+                  className="absolute -top-11 right-0 p-2 rounded-full bg-white/20 text-white hover:bg-white/30 active:scale-95 transition-transform"
+                  aria-label="Close image preview"
                 >
-                  Rescan
+                  <X className="w-5 h-5" />
                 </button>
+                <img
+                  src={previewImageUrl}
+                  alt="Expanded receipt preview"
+                  className="max-h-[80vh] w-auto object-contain rounded-2xl border border-white/20 shadow-2xl"
+                />
               </div>
+            </div>
+          )}
 
-              {extraction.qualityWarning && (
-                <div className="p-3 rounded-2xl bg-[#FFF6ED] border border-[#F5D0A9] text-xs text-[#9A4D06] flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{extraction.qualityWarning}</span>
+          {/* Receipt Extraction Top Section */}
+          {extraction && (
+            <div className="space-y-3">
+              {/* Receipt Image Thumbnail Banner */}
+              {previewImageUrl && (
+                <div className="bg-white rounded-[24px] p-3 border border-[#E7EBE5] flex items-center justify-between gap-3 shadow-pw-card">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsReceiptImageExpanded(true)}
+                      className="w-14 h-16 rounded-2xl overflow-hidden border border-[#E7EBE5] relative shrink-0 shadow-sm group active:scale-95 transition-transform"
+                    >
+                      <img
+                        src={previewImageUrl}
+                        alt="Receipt thumbnail"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                      <div className="absolute inset-0 bg-black/25 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Eye className="w-4 h-4 text-white" />
+                      </div>
+                    </button>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-[#191B19] truncate">
+                        Receipt Image Attached
+                      </p>
+                      <p className="text-[10px] text-[#777F77] mt-0.5">
+                        Tap photo to zoom & verify details
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {extraction.confidence && (
+                      <span className="px-2.5 py-1 rounded-full bg-[#EBF0E9] text-[#191B19] text-[10px] font-semibold border border-[#D8DFD4]">
+                        {Math.round(extraction.confidence.totalAmount * 100)}% match
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setExtraction(null)}
+                      className="text-[11px] font-semibold text-[#191B19] underline"
+                    >
+                      Rescan
+                    </button>
+                  </div>
                 </div>
               )}
 
+              {/* Extraction Review Needed Banner */}
+              {extraction.needsReview && (
+                <div className="p-3.5 rounded-2xl bg-[#FFF6ED] border border-[#F5D0A9] text-xs text-[#9A4D06] flex items-start gap-2.5 animate-fadeIn">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-semibold">Review & Confirmation Required</p>
+                    <p className="text-[11px] leading-relaxed text-[#9A4D06]/90">
+                      {extraction.warnings?.[0] ||
+                        extraction.qualityWarning ||
+                        'Please verify the final amount and items before confirming.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Duplicate Receipt Warning */}
               {extraction.isDuplicateWarning && (
                 <div className="p-3 rounded-2xl bg-[#FFEFEF] border border-[#F5C2C7] text-xs text-[#B42318] flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -1026,6 +1077,36 @@ export function AddExpenseSheet() {
                   </span>
                 </div>
               )}
+
+              {/* PROMINENT FINAL PAYABLE AMOUNT CARD */}
+              <div className="bg-[#191B19] text-white rounded-[24px] p-4.5 border border-[#191B19] shadow-pw-card space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-white/70 font-medium">Final Payable Amount</span>
+                  <span className="px-2 py-0.5 rounded-full bg-[#DFFF52] text-[#191B19] text-[10px] font-bold uppercase tracking-wider">
+                    {currency}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-3xl font-extrabold text-[#DFFF52] tracking-tight">
+                    {formatCurrency(parseFloat(amount) || 0, currency)}
+                  </span>
+                </div>
+                {(extraction.subtotal || extraction.discount || extraction.taxAmount) && (
+                  <div className="pt-2 border-t border-white/10 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-white/75">
+                    {extraction.subtotal !== undefined && (
+                      <span>Subtotal: {formatCurrency(extraction.subtotal, currency)}</span>
+                    )}
+                    {extraction.discount !== undefined && extraction.discount > 0 && (
+                      <span className="text-[#DFFF52]">
+                        Discount: -{formatCurrency(extraction.discount, currency)}
+                      </span>
+                    )}
+                    {extraction.taxAmount !== undefined && extraction.taxAmount > 0 && (
+                      <span>Tax/GST: +{formatCurrency(extraction.taxAmount, currency)}</span>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -1180,7 +1261,7 @@ export function AddExpenseSheet() {
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={
                   txType === 'expense'
-                    ? 'e.g. Blue Tokai Coffee, FreshMart'
+                    ? 'e.g. Reliance Smart, Croma, Blue Tokai'
                     : 'e.g. Monthly Salary'
                 }
                 className="w-full px-3.5 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-medium text-[#191B19] focus:outline-none focus:border-[#191B19]"
@@ -1206,7 +1287,7 @@ export function AddExpenseSheet() {
 
               <div>
                 <label className="block text-[11px] font-medium text-[#777F77] mb-1">
-                  Date *
+                  Purchase Date *
                 </label>
                 <input
                   type="date"
@@ -1218,20 +1299,57 @@ export function AddExpenseSheet() {
               </div>
             </div>
 
+            {/* Payment Method Selector */}
+            <div>
+              <label className="block text-[11px] font-medium text-[#777F77] mb-1.5">
+                Payment Method
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {['UPI', 'Card', 'Cash', 'Net Banking', 'Other'].map((pm) => (
+                  <button
+                    key={pm}
+                    type="button"
+                    onClick={() => setPaymentMethod(pm)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                      paymentMethod === pm
+                        ? 'bg-[#191B19] text-white shadow-sm'
+                        : 'bg-[#F5F7F3] border border-[#E7EBE5] text-[#191B19] hover:bg-[#EBF0E9]'
+                    }`}
+                  >
+                    {pm}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {txType === 'expense' && (
-              <div>
-                <label className="block text-[11px] font-medium text-[#777F77] mb-1">
-                  Tax Amount (Optional)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={taxAmount}
-                  onChange={(e) => setTaxAmount(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-3.5 py-2 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs text-[#191B19] focus:outline-none focus:border-[#191B19]"
-                />
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-[11px] font-medium text-[#777F77] mb-1">
+                    Tax Amount (Optional)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={taxAmount}
+                    onChange={(e) => setTaxAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs text-[#191B19] focus:outline-none focus:border-[#191B19]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-[#777F77] mb-1">
+                    Invoice # (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceNumber}
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                    placeholder="e.g. RS-90412"
+                    className="w-full px-3 py-2 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs text-[#191B19] focus:outline-none focus:border-[#191B19]"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -1253,7 +1371,7 @@ export function AddExpenseSheet() {
                     <button
                       type="button"
                       onClick={handleSyncTotalFromItems}
-                      className="px-2.5 py-1 rounded-full bg-[#EBF0E9] text-[#191B19] text-[10px] font-semibold"
+                      className="px-2.5 py-1 rounded-full bg-[#EBF0E9] text-[#191B19] text-[10px] font-semibold hover:bg-[#DFFF52] transition-colors"
                     >
                       Sync Total
                     </button>
@@ -1261,7 +1379,7 @@ export function AddExpenseSheet() {
                   <button
                     type="button"
                     onClick={handleAddEmptyItem}
-                    className="px-2.5 py-1 rounded-full bg-[#191B19] text-white text-[10px] font-semibold inline-flex items-center gap-1"
+                    className="px-2.5 py-1 rounded-full bg-[#191B19] text-white text-[10px] font-semibold inline-flex items-center gap-1 active:scale-95 transition-transform"
                   >
                     <Plus className="w-3 h-3" /> Item
                   </button>
@@ -1303,7 +1421,7 @@ export function AddExpenseSheet() {
                         type="button"
                         onClick={() => handleRemoveItem(idx)}
                         aria-label="Remove item"
-                        className="w-7 h-7 rounded-xl bg-white border border-[#E7EBE5] flex items-center justify-center text-[#777F77] hover:text-[#E5484D]"
+                        className="w-7 h-7 rounded-xl bg-white border border-[#E7EBE5] flex items-center justify-center text-[#777F77] hover:text-[#E5484D] active:scale-95 transition-transform"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1324,10 +1442,10 @@ export function AddExpenseSheet() {
                 <button
                   type="button"
                   onClick={handleReanalyzeCategory}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#191B19] bg-[#DFFF52] px-2.5 py-1 rounded-full"
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#191B19] bg-[#DFFF52] px-2.5 py-1 rounded-full active:scale-95 transition-transform"
                 >
                   <RefreshCw className="w-3 h-3" />
-                  Re-check AI Category
+                  Re-check Category
                 </button>
               )}
             </div>
@@ -1376,12 +1494,12 @@ export function AddExpenseSheet() {
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Add any context or payment reference..."
+              placeholder="Add any context or comments..."
               className="w-full px-3.5 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs text-[#191B19] focus:outline-none focus:border-[#191B19]"
             />
           </div>
 
-          {/* Submit Confirmation Button */}
+          {/* Prominent Action Button: Confirm & Save Expense */}
           <button
             type="submit"
             disabled={isSaving || accounts.length === 0}
@@ -1394,9 +1512,9 @@ export function AddExpenseSheet() {
             )}
             <span>
               {isSaving
-                ? 'Saving Transaction...'
+                ? 'Saving Expense...'
                 : extraction
-                ? 'Confirm & Record Expense'
+                ? 'Confirm & Save Expense'
                 : txType === 'expense'
                 ? 'Save Expense'
                 : 'Save Income'}

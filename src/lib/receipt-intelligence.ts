@@ -260,6 +260,36 @@ export function normalizeCategoryName(input: string | undefined | null): Expense
 }
 
 /**
+ * Parses monetary amounts formatted in Indian or international currency notations.
+ * Handles:
+ * - ₹1,416.00, Rs. 4,000, INR 1,25,000.50, 4,000/-, 689.00
+ * - Commas in both Indian lakhs/crores grouping and international thousands
+ */
+export function parseIndianCurrency(raw: string | undefined | null): number | null {
+  if (!raw || typeof raw !== 'string') return null;
+
+  // Strip percentage mentions like (5%), 5%, @ 9%
+  const clean = raw
+    .replace(/(?:@\s*)?\(?\s*\d+(?:\.\d+)?\s*%\s*\)?/g, ' ')
+    .trim()
+    .replace(/[₹$€£]|(?:INR|Rs\.?)/gi, '')
+    .replace(/\/-$/, '')
+    .trim();
+
+  // Find all candidate numbers on the line
+  const matches = clean.match(
+    /(?:[0-9]{1,3}(?:,[0-9]{2,3})+|[0-9]+)(?:\.[0-9]{1,2})?/g
+  );
+  if (!matches || matches.length === 0) return null;
+
+  // The monetary value on a summary line is almost always the last number
+  const lastMatch = matches[matches.length - 1];
+  const numStr = lastMatch.replace(/,/g, '');
+  const val = parseFloat(numStr);
+  return isNaN(val) ? null : roundMoney(val);
+}
+
+/**
  * Parses raw OCR text extracted from a receipt photo into structured fields.
  */
 export function parseRawReceiptText(
@@ -269,93 +299,237 @@ export function parseRawReceiptText(
   const cleanLines = rawText
     .split(/\r?\n/)
     .map((l) => l.trim())
-    .filter((l) => l.length > 1);
+    .filter((l) => l.length > 0);
 
   if (cleanLines.length < 2) {
     return {
       isValidReceipt: false,
       qualityWarning:
-        'The uploaded image appears blurry or unreadable. Please retake a clearer photo or enter the details below.',
+        'The uploaded receipt appears blurry, blank, or unreadable. Please upload a clearer photo or enter details manually.',
       receiptHash,
       merchantName: '',
       transactionDate: new Date().toISOString().slice(0, 10),
       totalAmount: 0,
+      currency: 'INR',
       items: [],
       suggestedCategory: 'Other',
       categoryReasoning: 'Low OCR text confidence — manual verification required.',
       rawText,
       extractionSource: 'ocr-engine',
+      confidence: {
+        merchantName: 0.1,
+        totalAmount: 0.1,
+        purchaseDate: 0.1,
+      },
+      needsReview: true,
+      warnings: ['Unable to read legible text on this receipt image.'],
     };
   }
 
-  // 1. Identify Merchant Name (first non-header/non-date line)
-  let merchantName = 'Merchant Receipt';
-  for (const line of cleanLines.slice(0, 5)) {
-    const ignored = /^(tax invoice|receipt|welcome|gstin|tel|phone|date|cashier|bill no|order)/i.test(
-      line
-    );
-    if (!ignored && /[a-zA-Z]{2,}/.test(line)) {
-      merchantName = line.replace(/[^a-zA-Z0-9\s&'.,-]/g, '').trim();
-      break;
+  // 1. Identify Merchant Name
+  let merchantName = '';
+  const headerIgnoreRegex =
+    /^(tax invoice|retail invoice|cash memo|credit memo|receipt|welcome|gstin|tel|phone|date|time|cashier|bill no|order #|customer copy|duplicate copy|branch|store #)/i;
+
+  for (const line of cleanLines.slice(0, 6)) {
+    if (headerIgnoreRegex.test(line)) continue;
+    const hasLetters = /[a-zA-Z]{3,}/.test(line);
+    const isAddressOrContact =
+      /\b(?:road|street|nagar|marg|floor|bangalore|delhi|mumbai|chennai|hyderabad|pincode|ph:|tel:|\+91)\b/i.test(
+        line
+      );
+    if (hasLetters && !isAddressOrContact) {
+      const clean = line
+        .replace(/^[#*-]+\s*/, '')
+        .replace(/[^a-zA-Z0-9\s&'.,-]/g, '')
+        .trim();
+      if (!merchantName) {
+        merchantName = clean;
+      }
+      // If a subsequent line has a specific consumer retail brand (e.g. SMART SUPERSTORE, CROMA, COFFEE, PHARMACY), prefer it
+      if (/(?:smart|superstore|mart|cafe|coffee|pharmacy|bazaar|croma|zara|hospital|clinic)/i.test(clean)) {
+        merchantName = clean;
+        break;
+      }
     }
   }
 
-  // 2. Identify Date (supports YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, DD-Mon-YYYY)
+  if (!merchantName) {
+    merchantName = cleanLines[0]?.replace(/[^a-zA-Z0-9\s&'.,-]/g, '').trim() || 'Store / Merchant';
+  }
+
+  // 2. Identify Date & Time
   let transactionDate = new Date().toISOString().slice(0, 10);
+  let purchaseDateConfidence = 0.5;
+  let purchaseTime: string | undefined;
+
   const isoMatch = rawText.match(/\b(20\d{2})[-/.](0[1-9]|1[0-2])[-/.](0[1-9]|[12]\d|3[01])\b/);
   const dmyMatch = rawText.match(/\b(0?[1-9]|[12]\d|3[01])[-/.](0?[1-9]|1[0-2])[-/.](20\d{2})\b/);
+  const dMonYMatch = rawText.match(
+    /\b(0?[1-9]|[12]\d|3[01])[-/\s](Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[-/\s](20\d{2})\b/i
+  );
+
+  const monthMap: Record<string, string> = {
+    jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+    jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+  };
+
   if (isoMatch) {
     transactionDate = `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    purchaseDateConfidence = 0.95;
   } else if (dmyMatch) {
     const d = dmyMatch[1].padStart(2, '0');
     const m = dmyMatch[2].padStart(2, '0');
     const y = dmyMatch[3];
     transactionDate = `${y}-${m}-${d}`;
+    purchaseDateConfidence = 0.95;
+  } else if (dMonYMatch) {
+    const d = dMonYMatch[1].padStart(2, '0');
+    const mKey = dMonYMatch[2].toLowerCase().slice(0, 3);
+    const m = monthMap[mKey] || '01';
+    const y = dMonYMatch[3];
+    transactionDate = `${y}-${m}-${d}`;
+    purchaseDateConfidence = 0.95;
   }
 
-  // 3. Extract Total, Tax, and Individual Items
-  let extractedTotal = 0;
+  const timeMatch = rawText.match(/\b([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?\s*(AM|PM)?\b/i);
+  if (timeMatch) {
+    let hours = parseInt(timeMatch[1], 10);
+    const minutes = timeMatch[2];
+    const ampm = timeMatch[4]?.toUpperCase();
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+    purchaseTime = `${String(hours).padStart(2, '0')}:${minutes}`;
+  }
+
+  // 3. Detect Currency
+  let currency = 'INR';
+  if (/[$]/.test(rawText) && !/[₹]|Rs|INR/i.test(rawText)) currency = 'USD';
+  else if (/[€]/.test(rawText)) currency = 'EUR';
+  else if (/[£]/.test(rawText)) currency = 'GBP';
+
+  // 4. Identify Invoice / Bill Number & Payment Method
+  let invoiceNumber: string | undefined;
+  const invMatch = rawText.match(
+    /(?:tax\s*invoice|retail\s*invoice|invoice|bill|receipt|tax\s*inv\b|memo)\s*(?:no\.?|id)?\s*[:\-#]?\s*([A-Za-z0-9\-_/]+)/i
+  );
+  if (invMatch && invMatch[1].length >= 3 && !/^(total|date|cash)/i.test(invMatch[1])) {
+    invoiceNumber = invMatch[1].trim();
+  }
+
+  let paymentMethod: string | undefined;
+  if (/upi|gpay|google\s*pay|phonepe|paytm/i.test(rawText)) {
+    paymentMethod = 'UPI';
+  } else if (/credit\s*card|debit\s*card|visa|mastercard|amex|rupay/i.test(rawText)) {
+    paymentMethod = 'Card';
+  } else if (/cash\s*tendered|tendered\s*cash|paid\s*by\s*cash|cash/i.test(rawText)) {
+    paymentMethod = 'Cash';
+  } else if (/net\s*banking/i.test(rawText)) {
+    paymentMethod = 'Net Banking';
+  }
+
+  // 5. Monetary Value Extraction (Subtotal, Discount, Tax, Cash Tendered, Change, Grand Total)
+  let extractedSubtotal: number | undefined;
+  let extractedDiscount: number | undefined;
   let extractedTax: number | undefined;
+  let explicitGrandTotal: number | undefined;
+  let tenderedCash: number | undefined;
+  let changeReturned: number | undefined;
+
   const items: ReceiptItemInput[] = [];
 
-  const totalLineRegex = /(?:grand\s*total|total\s*amount|amount\s*due|net\s*total|^total)\s*[:\-₹$€£]*\s*([0-9]+(?:[.,][0-9]{1,2})?)/i;
-  const taxLineRegex = /(?:cgst|sgst|igst|gst|vat|sales\s*tax|tax)\s*(?:\(\d+%?\))?\s*[:\-₹$€£]*\s*([0-9]+(?:[.,][0-9]{1,2})?)/i;
-  const itemLineRegex = /^([A-Za-z][A-Za-z0-9\s&/().,'-]{2,36}?)\s+(?:(\d+)\s*[xX*]\s*([0-9]+(?:\.[0-9]{1,2})?)\s+)?[₹$€£]?\s*([0-9]+(?:\.[0-9]{2}))$/;
-
   for (const line of cleanLines) {
-    const tMatch = line.match(totalLineRegex);
-    if (tMatch) {
-      const val = parseFloat(tMatch[1].replace(/,/g, ''));
-      if (!isNaN(val) && val > extractedTotal) {
-        extractedTotal = roundMoney(val);
+    // Grand Total / Net Payable
+    if (
+      /(?:grand\s*total|net\s*payable|net\s*amount\s*payable|amount\s*due|amount\s*paid|total\s*bill|total\s*amount|^total\b)/i.test(
+        line
+      ) &&
+      !/items?|qty|discount|savings/i.test(line)
+    ) {
+      const val = parseIndianCurrency(line);
+      if (val !== null && val > 0) {
+        explicitGrandTotal = val;
       }
       continue;
     }
 
-    const txMatch = line.match(taxLineRegex);
-    if (txMatch) {
-      const val = parseFloat(txMatch[1].replace(/,/g, ''));
-      if (!isNaN(val) && val > 0) {
+    // Subtotal: prioritize explicit Sub Total / Gross Total over Taxable Value
+    if (/(?:sub\s*total|gross\s*total)/i.test(line)) {
+      const val = parseIndianCurrency(line);
+      if (val !== null && val > 0) {
+        extractedSubtotal = val;
+      }
+      continue;
+    } else if (/(?:taxable\s*amount|taxable\s*value)/i.test(line)) {
+      if (extractedSubtotal === undefined) {
+        const val = parseIndianCurrency(line);
+        if (val !== null && val > 0) {
+          extractedSubtotal = val;
+        }
+      }
+      continue;
+    }
+
+    // Discount / Savings
+    if (/(?:discount|cashback|savings|you\s*saved|offer)/i.test(line)) {
+      const val = parseIndianCurrency(line);
+      if (val !== null && val > 0) {
+        extractedDiscount = val;
+      }
+      continue;
+    }
+
+    // Taxes (CGST, SGST, IGST, VAT, Sales Tax) - exclude invoice titles, taxable amounts, and GSTIN numbers
+    if (
+      /(?:cgst|sgst|igst|\bgst\b|vat|sales\s*tax|\btax\b)/i.test(line) &&
+      !/(?:tax\s*invoice|tax\s*inv|tax\s*no|tax\s*id|tax\s*#|taxable|tax\s*reg|gstin)/i.test(
+        line
+      )
+    ) {
+      const val = parseIndianCurrency(line);
+      if (val !== null && val > 0) {
         extractedTax = roundMoney((extractedTax || 0) + val);
       }
       continue;
     }
 
-    const iMatch = line.match(itemLineRegex);
-    if (iMatch) {
-      const rawName = iMatch[1].trim();
-      if (
-        !/^(subtotal|sub total|total|cash|change|card|visa|mastercard|discount|tip|balance|tax|gst)/i.test(
+    // Tendered Cash
+    if (/(?:tendered\s*cash|cash\s*tendered|cash\s*paid)/i.test(line)) {
+      const val = parseIndianCurrency(line);
+      if (val !== null && val > 0) {
+        tenderedCash = val;
+      }
+      continue;
+    }
+
+    // Change Returned
+    if (/(?:change\s*returned|change\s*due|change\b)/i.test(line)) {
+      const val = parseIndianCurrency(line);
+      if (val !== null && val >= 0) {
+        changeReturned = val;
+      }
+      continue;
+    }
+
+    // Item line pattern: e.g. "Amul Milk 1L  2 x 54.00  108.00" or "Artisan Bread  145.00"
+    const itemMatch = line.match(
+      /^([A-Za-z0-9][A-Za-z0-9\s&/().,'-]{2,40}?)\s+(?:(\d+)\s*[xX*]\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]{1,2})?)\s+)?(?:[₹$€£]|Rs\.?)?\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]{2}))$/
+    );
+
+    if (itemMatch) {
+      const rawName = itemMatch[1].trim();
+      const isHeaderWord =
+        /^(subtotal|total|cash|change|card|visa|mastercard|discount|tip|balance|tax|gst|round|net|paid|tendered)/i.test(
           rawName
-        )
-      ) {
-        const qty = iMatch[2] ? parseFloat(iMatch[2]) : 1;
-        const totalPrice = roundMoney(parseFloat(iMatch[4]));
-        const unitPrice = iMatch[3]
-          ? roundMoney(parseFloat(iMatch[3]))
+        );
+      if (!isHeaderWord) {
+        const qty = itemMatch[2] ? parseFloat(itemMatch[2]) : 1;
+        const totalPrice = parseIndianCurrency(itemMatch[4]) || 0;
+        const unitPrice = itemMatch[3]
+          ? parseIndianCurrency(itemMatch[3]) || roundMoney(totalPrice / (qty || 1))
           : roundMoney(totalPrice / (qty || 1));
 
-        if (totalPrice > 0 && totalPrice < 1000000) {
+        if (totalPrice > 0 && totalPrice < 2000000) {
           items.push({
             name: rawName,
             quantity: qty,
@@ -367,18 +541,50 @@ export function parseRawReceiptText(
     }
   }
 
-  const itemsSum = roundMoney(
-    items.reduce((sum, item) => sum + item.totalPrice, 0) + (extractedTax || 0)
-  );
+  // 6. Resolve Final Payable Amount
+  let finalTotal = 0;
+  let totalConfidence = 0.5;
+  const warnings: string[] = [];
 
-  let qualityWarning: string | undefined;
-  if (extractedTotal <= 0 && itemsSum > 0) {
-    extractedTotal = itemsSum;
-    qualityWarning =
-      'Receipt total line was missing or unclear; calculated total from extracted items. Please verify before saving.';
-  } else if (extractedTotal <= 0 && items.length === 0) {
-    qualityWarning =
-      'Could not detect a valid total amount on this image. Please verify or enter the total manually.';
+  if (explicitGrandTotal !== undefined && explicitGrandTotal > 0) {
+    finalTotal = explicitGrandTotal;
+    totalConfidence = 0.95;
+  } else if (tenderedCash !== undefined && changeReturned !== undefined) {
+    finalTotal = roundMoney(tenderedCash - changeReturned);
+    totalConfidence = 0.9;
+  } else if (extractedSubtotal !== undefined) {
+    finalTotal = roundMoney(
+      extractedSubtotal - (extractedDiscount || 0) + (extractedTax || 0)
+    );
+    totalConfidence = 0.8;
+  } else if (items.length > 0) {
+    const itemsSum = items.reduce((s, i) => s + i.totalPrice, 0);
+    finalTotal = roundMoney(itemsSum + (extractedTax || 0));
+    totalConfidence = 0.75;
+    warnings.push('Receipt total line was missing or ambiguous; calculated total from item prices.');
+  }
+
+  // Arithmetic Verification
+  let needsReview = false;
+  if (extractedSubtotal && finalTotal > 0) {
+    const expected = roundMoney(
+      extractedSubtotal - (extractedDiscount || 0) + (extractedTax || 0)
+    );
+    const diff = Math.abs(expected - finalTotal);
+    // Allow slight discrepancy for round-off (<= 2.0 INR)
+    if (diff > 2.0) {
+      needsReview = true;
+      warnings.push(
+        `Discrepancy detected: Subtotal (${extractedSubtotal}) minus discount plus tax equals ${expected}, but extracted total is ${finalTotal}. Please verify.`
+      );
+      totalConfidence = Math.max(0.4, totalConfidence - 0.3);
+    }
+  }
+
+  if (finalTotal <= 0) {
+    needsReview = true;
+    totalConfidence = 0.1;
+    warnings.push('Could not detect a clear final total amount. Please verify the amount.');
   }
 
   const { category, reasoning } = categorizeExpenseByMerchantAndItems(
@@ -388,18 +594,31 @@ export function parseRawReceiptText(
   );
 
   return {
-    isValidReceipt: extractedTotal > 0 || items.length > 0,
-    qualityWarning,
+    isValidReceipt: finalTotal > 0 || items.length > 0,
+    qualityWarning: warnings.length > 0 ? warnings[0] : undefined,
     receiptHash,
     merchantName,
     transactionDate,
-    totalAmount: extractedTotal,
+    purchaseTime,
+    currency,
+    subtotal: extractedSubtotal,
+    discount: extractedDiscount,
     taxAmount: extractedTax,
+    totalAmount: finalTotal,
+    paymentMethod,
+    invoiceNumber,
     items,
     suggestedCategory: category,
     categoryReasoning: reasoning,
     rawText,
     extractionSource: 'ocr-engine',
+    confidence: {
+      merchantName: merchantName ? 0.9 : 0.3,
+      totalAmount: totalConfidence,
+      purchaseDate: purchaseDateConfidence,
+    },
+    needsReview: needsReview || totalConfidence < 0.7,
+    warnings,
   };
 }
 

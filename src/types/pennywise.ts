@@ -142,6 +142,12 @@ export interface RecurringContribution {
   updatedAt: string;
 }
 
+export interface ReceiptConfidence {
+  merchantName: number;
+  totalAmount: number;
+  purchaseDate: number;
+}
+
 export interface ScannedReceiptExtraction {
   isValidReceipt: boolean;
   qualityWarning?: string;
@@ -149,13 +155,23 @@ export interface ScannedReceiptExtraction {
   receiptHash: string;
   merchantName: string;
   transactionDate: string;
-  totalAmount: number;
+  purchaseTime?: string;
+  currency?: string;
+  subtotal?: number;
+  discount?: number;
   taxAmount?: number;
+  totalAmount: number;
+  paymentMethod?: string;
+  invoiceNumber?: string;
   items: ReceiptItemInput[];
   suggestedCategory: ExpenseCategoryName;
   categoryReasoning: string;
   rawText?: string;
   extractionSource: 'gemini-vision' | 'ocr-engine';
+  confidence?: ReceiptConfidence;
+  needsReview?: boolean;
+  warnings?: string[];
+  previewUrl?: string;
 }
 
 export interface DailySpendingPoint {
