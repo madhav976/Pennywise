@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --pw-bg: #F5F7F3;
+  --pw-surface: #EBF0E9;
+  --pw-card: #FFFFFF;
+  --pw-lime: #DFFF52;
+  --pw-sage: #B9D99B;
+  --pw-charcoal: #191B19;
+  --pw-muted: #777F77;
+  --pw-dark: #202320;
+  --pw-border: #E7EBE5;
+
+  /* Bklit UI Chart Design Tokens */
+  --chart-line-primary: #191B19;
+  --chart-line-secondary: #84B553;
+  --chart-segment-background: rgba(223, 255, 82, 0.28);
+  --chart-segment-line: #191B19;
+  --chart-grid: #D8DFD4;
+  --chart-crosshair: #191B19;
+  --chart-tooltip-background: #191B19;
+  --chart-slice-1: #191B19;
+  --chart-slice-2: #84B553;
+  --chart-slice-3: #DFFF52;
+  --chart-slice-4: #B9D99B;
+  --chart-slice-5: #657560;
+  --chart-slice-6: #9BB88D;
+  --chart-slice-7: #D2E3C4;
+  --chart-slice-8: #364234;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #E4EAE0;
+  color: #191B19;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
+  overflow-x: hidden;
+}
+
+/* Hide scrollbars on mobile horizontal pill containers */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes viewEnter {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cameraScanSweep {
+  0% {
+    top: 10%;
+    opacity: 0.35;
+  }
+  50% {
+    top: 86%;
+    opacity: 0.9;
+  }
+  100% {
+    top: 10%;
+    opacity: 0.35;
+  }
+}
+
+@keyframes pwSkeletonShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.18s ease-out forwards;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pageEnter {
+  animation: pageEnter 0.22s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: opacity, transform;
+}
+
+.animate-viewEnter {
+  animation: viewEnter 0.19s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: opacity, transform;
+}
+
+.animate-cameraScanSweep {
+  animation: cameraScanSweep 2.4s ease-in-out infinite;
+}
+
+.animate-pwSkeleton {
+  background: linear-gradient(
+    90deg,
+    #EBF0E9 25%,
+    #DFE7DC 50%,
+    #EBF0E9 75%
+  );
+  background-size: 200% 100%;
+  animation: pwSkeletonShimmer 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fadeIn,
+  .animate-slideUp,
+  .animate-pageEnter,
+  .animate-viewEnter,
+  .animate-cameraScanSweep,
+  .animate-pwSkeleton {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transform: none !important;
+  }
+}
+
+

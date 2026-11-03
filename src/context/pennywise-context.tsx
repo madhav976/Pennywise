@@ -1,0 +1,1847 @@
+'use client';
+
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import {
+  Account,
+  AccountType,
+  ExpenseCategoryName,
+  GoalContribution,
+  MonthlyAnalyticsSummary,
+  ReceiptItemInput,
+  ReceiptRecord,
+  RecurringContribution,
+  RecurringFrequency,
+  SavingsGoal,
+  Transaction,
+  TransactionCategoryName,
+  TransactionType,
+  UserProfile,
+} from '@/types/pennywise';
+import {
+  advanceDateByFrequency,
+  canSafelyDeleteAccount,
+  computeMonthlyAnalytics,
+  getPeriodKeyForDate,
+  roundMoney,
+  synchronizeBalances,
+} from '@/lib/money';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import {
+  createAccountServerAction,
+  createTransactionServerAction,
+  fetchUserLedgerAction,
+} from '@/app/actions/pennywise-actions';
+
+export type NavTab = 'home' | 'transactions' | 'goals' | 'accounts';
+
+export interface ToastMessage {
+  id: string;
+  type: 'success' | 'error' | 'info';
+  title: string;
+  description?: string;
+}
+
+interface LedgerState {
+  accounts: Account[];
+  transactions: Transaction[];
+  receipts: ReceiptRecord[];
+  goals: SavingsGoal[];
+  contributions: GoalContribution[];
+  recurringRules: RecurringContribution[];
+}
+
+interface PennywiseContextValue {
+  user: UserProfile | null;
+  isAuthLoading: boolean;
+  isDataLoading: boolean;
+  isSupabaseConnected: boolean;
+  activeTab: NavTab;
+  setActiveTab: (tab: NavTab) => void;
+  selectedMonth: string; // YYYY-MM
+  setSelectedMonth: (month: string) => void;
+  accounts: Account[];
+  transactions: Transaction[];
+  receipts: ReceiptRecord[];
+  goals: SavingsGoal[];
+  contributions: GoalContribution[];
+  recurringRules: RecurringContribution[];
+  monthlyAnalytics: MonthlyAnalyticsSummary;
+  toasts: ToastMessage[];
+  dismissToast: (id: string) => void;
+  showToast: (type: ToastMessage['type'], title: string, description?: string) => void;
+
+  // Navigation & Action Sheet triggers
+  isAddExpenseSheetOpen: boolean;
+  setIsAddExpenseSheetOpen: (open: boolean) => void;
+  activeAddMode: 'chooser' | 'scan' | 'manual' | null;
+  openAddFlow: (mode?: 'chooser' | 'scan' | 'manual') => void;
+  closeAddFlow: () => void;
+
+  // Filter presets when navigating from Accounts or Categories
+  transactionFilters: {
+    month: string; // 'all' or YYYY-MM
+    category: string; // 'all' or CategoryName
+    accountId: string; // 'all' or AccountId
+    search: string;
+  };
+  setTransactionFilters: React.Dispatch<
+    React.SetStateAction<{
+      month: string;
+      category: string;
+      accountId: string;
+      search: string;
+    }>
+  >;
+
+  // Auth actions
+  signIn: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  signUp: (
+    fullName: string,
+    email: string,
+    password: string,
+    currency?: string
+  ) => Promise<{ ok: boolean; error?: string; requiresConfirmation?: boolean }>;
+  signOut: () => Promise<void>;
+  updateProfile: (updates: { fullName?: string; currency?: string }) => void;
+  sendPasswordResetEmail: (email: string) => Promise<{ ok: boolean; error?: string }>;
+  updatePassword: (password: string) => Promise<{ ok: boolean; error?: string }>;
+
+  // Module 4: Accounts
+  createAccount: (input: {
+    name: string;
+    accountType: AccountType;
+    openingBalance: number;
+    icon: string;
+    description?: string;
+  }) => Promise<{ ok: boolean; error?: string; account?: Account }>;
+  updateAccount: (
+    id: string,
+    updates: {
+      name: string;
+      accountType: AccountType;
+      openingBalance: number;
+      icon: string;
+      description?: string;
+    }
+  ) => Promise<{ ok: boolean; error?: string }>;
+  deleteAccount: (id: string) => Promise<{ ok: boolean; error?: string }>;
+
+  // Module 1 & 2: Transactions & Receipts
+  isReceiptHashDuplicate: (hash: string) => boolean;
+  addTransaction: (input: {
+    accountId: string;
+    title: string;
+    amount: number;
+    transactionType: TransactionType;
+    category: TransactionCategoryName;
+    transactionDate: string;
+    taxAmount?: number;
+    notes?: string;
+    receipt?: {
+      merchantName: string;
+      receiptDate: string;
+      totalAmount: number;
+      taxAmount?: number;
+      suggestedCategory: ExpenseCategoryName;
+      receiptHash: string;
+      rawOcrText?: string;
+      items: ReceiptItemInput[];
+    };
+  }) => Promise<{ ok: boolean; error?: string; transaction?: Transaction }>;
+  updateTransaction: (
+    id: string,
+    updates: {
+      accountId: string;
+      title: string;
+      amount: number;
+      transactionType: TransactionType;
+      category: TransactionCategoryName;
+      transactionDate: string;
+      taxAmount?: number;
+      notes?: string;
+      receiptItems?: ReceiptItemInput[];
+    }
+  ) => Promise<{ ok: boolean; error?: string }>;
+  deleteTransaction: (id: string) => Promise<{ ok: boolean; error?: string }>;
+
+  // Module 3: Savings Goals & Contributions
+  createGoal: (input: {
+    name: string;
+    targetAmount: number;
+    targetDate?: string;
+    icon: string;
+    initialContribution?: number;
+    sourceAccountId?: string;
+  }) => Promise<{ ok: boolean; error?: string; goal?: SavingsGoal }>;
+  updateGoal: (
+    id: string,
+    updates: {
+      name: string;
+      targetAmount: number;
+      targetDate?: string;
+      icon: string;
+    }
+  ) => Promise<{ ok: boolean; error?: string }>;
+  deleteGoal: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  contributeToGoal: (input: {
+    goalId: string;
+    sourceAccountId: string;
+    amount: number;
+    contributionDate?: string;
+    notes?: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  saveRecurringContribution: (input: {
+    goalId: string;
+    sourceAccountId: string;
+    amount: number;
+    frequency: RecurringFrequency;
+    startDate: string;
+    isEnabled: boolean;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  toggleRecurringContribution: (
+    ruleId: string,
+    isEnabled: boolean
+  ) => Promise<{ ok: boolean; error?: string }>;
+  deleteRecurringContribution: (ruleId: string) => Promise<{ ok: boolean; error?: string }>;
+  processDueRecurringContributions: () => Promise<{ processedCount: number }>;
+}
+
+const PennywiseContext = createContext<PennywiseContextValue | null>(null);
+
+const AUTH_SESSION_STORAGE_KEY = 'pennywise_active_user_v1';
+const AUTH_SIGNED_OUT_FLAG_KEY = 'pennywise_signed_out_v1';
+const USERS_REGISTRY_STORAGE_KEY = 'pennywise_users_registry_v1';
+
+const DEFAULT_USER_PROFILE: UserProfile = {
+  id: 'usr-pennywise-default',
+  email: 'personal@pennywise.app',
+  fullName: 'Personal Workspace',
+  currency: 'INR',
+  createdAt: '2026-11-01T00:00:00.000Z',
+};
+
+function getLedgerStorageKey(userId: string): string {
+  return `pennywise_ledger_v1_${userId}`;
+}
+
+function generateId(prefix: string): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function getCurrentMonthKey(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+const EMPTY_LEDGER: LedgerState = {
+  accounts: [],
+  transactions: [],
+  receipts: [],
+  goals: [],
+  contributions: [],
+  recurringRules: [],
+};
+
+export function PennywiseProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isDataLoading, setIsDataLoading] = useState(false);
+  const [activeTab, setActiveTabState] = useState<NavTab>('home');
+  const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthKey);
+  const [ledger, setLedger] = useState<LedgerState>(EMPTY_LEDGER);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const [isAddExpenseSheetOpen, setIsAddExpenseSheetOpen] = useState(false);
+  const [activeAddMode, setActiveAddMode] = useState<'chooser' | 'scan' | 'manual' | null>(
+    null
+  );
+
+  const [transactionFilters, setTransactionFilters] = useState({
+    month: 'all',
+    category: 'all',
+    accountId: 'all',
+    search: '',
+  });
+
+  const isSupabaseConnected = useMemo(() => isSupabaseConfigured(), []);
+
+  // Synchronize page navigation and modal states with browser back/forward history
+  const setActiveTab = useCallback((nextTab: NavTab) => {
+    setActiveTabState((prevTab) => {
+      if (prevTab !== nextTab && typeof window !== 'undefined') {
+        try {
+          window.history.pushState(
+            { pwTab: nextTab, pwAddSheet: false, pwAddMode: null },
+            '',
+            `#${nextTab}`
+          );
+        } catch {
+          // Ignore history push errors in restricted environments
+        }
+      }
+      return nextTab;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Seed initial history state if none exists
+    const initialHash = window.location.hash.replace('#', '') as NavTab;
+    const validTabs: NavTab[] = ['home', 'transactions', 'goals', 'accounts'];
+    const startingTab: NavTab = validTabs.includes(initialHash) ? initialHash : 'home';
+
+    if (startingTab !== 'home') {
+      setActiveTabState(startingTab);
+    }
+
+    try {
+      window.history.replaceState(
+        { pwTab: startingTab, pwAddSheet: false, pwAddMode: null },
+        '',
+        window.location.hash || '#home'
+      );
+    } catch {
+      // Ignore history errors
+    }
+
+    function handlePopState(event: PopStateEvent) {
+      const state = event.state;
+      if (state && typeof state.pwTab === 'string') {
+        const valid: NavTab[] = ['home', 'transactions', 'goals', 'accounts'];
+        if (valid.includes(state.pwTab as NavTab)) {
+          setActiveTabState(state.pwTab as NavTab);
+        }
+        if (state.pwAddSheet && state.pwAddMode) {
+          setActiveAddMode(state.pwAddMode);
+          setIsAddExpenseSheetOpen(true);
+        } else {
+          setIsAddExpenseSheetOpen(false);
+          setActiveAddMode(null);
+        }
+      } else {
+        const hashTab = window.location.hash.replace('#', '') as NavTab;
+        const valid: NavTab[] = ['home', 'transactions', 'goals', 'accounts'];
+        if (valid.includes(hashTab)) {
+          setActiveTabState(hashTab);
+        }
+        setIsAddExpenseSheetOpen(false);
+        setActiveAddMode(null);
+      }
+    }
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const showToast = useCallback(
+    (type: ToastMessage['type'], title: string, description?: string) => {
+      const id = generateId('toast');
+      setToasts((prev) => [...prev, { id, type, title, description }]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 3800);
+    },
+    []
+  );
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const openAddFlow = useCallback(
+    (mode: 'chooser' | 'scan' | 'manual' = 'chooser') => {
+      setActiveAddMode(mode);
+      setIsAddExpenseSheetOpen(true);
+      if (typeof window !== 'undefined') {
+        try {
+          window.history.pushState(
+            { pwTab: activeTab, pwAddSheet: true, pwAddMode: mode },
+            '',
+            `#${activeTab}`
+          );
+        } catch {
+          // Ignore
+        }
+      }
+    },
+    [activeTab]
+  );
+
+  const closeAddFlow = useCallback(() => {
+    setIsAddExpenseSheetOpen(false);
+    setActiveAddMode(null);
+    if (typeof window !== 'undefined') {
+      try {
+        window.history.replaceState(
+          { pwTab: activeTab, pwAddSheet: false, pwAddMode: null },
+          '',
+          `#${activeTab}`
+        );
+      } catch {
+        // Ignore
+      }
+    }
+  }, [activeTab]);
+
+  const persistLedger = useCallback((userId: string, nextLedger: LedgerState) => {
+    const synced = synchronizeBalances(
+      nextLedger.accounts,
+      nextLedger.transactions,
+      nextLedger.goals,
+      nextLedger.contributions
+    );
+    const finalState: LedgerState = {
+      ...nextLedger,
+      accounts: synced.accounts,
+      goals: synced.goals,
+    };
+    setLedger(finalState);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(getLedgerStorageKey(userId), JSON.stringify(finalState));
+      } catch (e) {
+        console.warn('Failed to persist local ledger mirror:', e);
+      }
+    }
+    return finalState;
+  }, []);
+
+  // Load initial authentication & user ledger
+  useEffect(() => {
+    let mounted = true;
+
+    async function initSession() {
+      try {
+        if (isSupabaseConfigured()) {
+          const supabase = createClient();
+          if (supabase) {
+            const {
+              data: { user: authUser },
+            } = await supabase.auth.getUser();
+
+            if (mounted) {
+              if (authUser) {
+                const profile: UserProfile = {
+                  id: authUser.id,
+                  email: authUser.email || '',
+                  fullName:
+                    authUser.user_metadata?.full_name ||
+                    authUser.email?.split('@')[0] ||
+                    'Pennywise User',
+                  currency: authUser.user_metadata?.currency || 'INR',
+                  createdAt: authUser.created_at,
+                };
+                setUser(profile);
+                setIsDataLoading(true);
+                const res = await fetchUserLedgerAction();
+                if (mounted && res.data) {
+                  persistLedger(profile.id, res.data);
+                }
+              } else {
+                setUser(null);
+              }
+            }
+
+            // Real-time auth state subscription
+            const {
+              data: { subscription },
+            } = supabase.auth.onAuthStateChange(async (event, session) => {
+              if (!mounted) return;
+              if (session?.user) {
+                const profile: UserProfile = {
+                  id: session.user.id,
+                  email: session.user.email || '',
+                  fullName:
+                    session.user.user_metadata?.full_name ||
+                    session.user.email?.split('@')[0] ||
+                    'Pennywise User',
+                  currency: session.user.user_metadata?.currency || 'INR',
+                  createdAt: session.user.created_at,
+                };
+                setUser(profile);
+                const res = await fetchUserLedgerAction();
+                if (mounted && res.data) {
+                  persistLedger(profile.id, res.data);
+                }
+              } else if (event === 'SIGNED_OUT') {
+                setUser(null);
+                setLedger(EMPTY_LEDGER);
+              }
+            });
+
+            return () => {
+              subscription.unsubscribe();
+            };
+          }
+        } else if (typeof window !== 'undefined') {
+          // Local storage fallback for offline / unconfigured demo mode
+          const explicitlySignedOut =
+            localStorage.getItem(AUTH_SIGNED_OUT_FLAG_KEY) === 'true';
+          const savedUserRaw = localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+
+          if (savedUserRaw) {
+            const parsedUser: UserProfile = JSON.parse(savedUserRaw);
+            if (mounted && parsedUser?.id) {
+              setUser(parsedUser);
+              const savedLedgerRaw = localStorage.getItem(
+                getLedgerStorageKey(parsedUser.id)
+              );
+              if (savedLedgerRaw) {
+                const parsedLedger: LedgerState = JSON.parse(savedLedgerRaw);
+                persistLedger(parsedUser.id, {
+                  accounts: parsedLedger.accounts || [],
+                  transactions: parsedLedger.transactions || [],
+                  receipts: parsedLedger.receipts || [],
+                  goals: parsedLedger.goals || [],
+                  contributions: parsedLedger.contributions || [],
+                  recurringRules: parsedLedger.recurringRules || [],
+                });
+              }
+            }
+          } else if (explicitlySignedOut) {
+            if (mounted) setUser(null);
+          } else {
+            // Default workspace when not configured
+            setUser(DEFAULT_USER_PROFILE);
+          }
+        }
+      } catch (err) {
+        console.warn('Session initialization warning:', err);
+      } finally {
+        if (mounted) {
+          setIsAuthLoading(false);
+          setIsDataLoading(false);
+        }
+      }
+    }
+
+    initSession();
+    return () => {
+      mounted = false;
+    };
+  }, [persistLedger]);
+
+  // Auth Actions
+  const signIn = useCallback(
+    async (email: string, password: string): Promise<{ ok: boolean; error?: string }> => {
+      const cleanEmail = email.trim().toLowerCase();
+      if (!cleanEmail || !password) {
+        return { ok: false, error: 'Please enter both email and password.' };
+      }
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password,
+          });
+          if (error) {
+            return { ok: false, error: error.message };
+          }
+          if (data.user) {
+            const ledgerRes = await fetchUserLedgerAction();
+            const profile: UserProfile = {
+              id: data.user.id,
+              email: data.user.email || cleanEmail,
+              fullName:
+                data.user.user_metadata?.full_name ||
+                cleanEmail.split('@')[0] ||
+                'Pennywise User',
+              currency: data.user.user_metadata?.currency || 'INR',
+              createdAt: data.user.created_at,
+            };
+            setUser(profile);
+            localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
+            localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(profile));
+            if (ledgerRes.data) {
+              persistLedger(profile.id, ledgerRes.data);
+            }
+            showToast('success', `Welcome back, ${profile.fullName}`);
+            return { ok: true };
+          }
+        }
+      }
+
+      // Local authenticated registry fallback
+      const rawRegistry = localStorage.getItem(USERS_REGISTRY_STORAGE_KEY);
+      const registry: Record<
+        string,
+        { profile: UserProfile; passwordHash: string }
+      > = rawRegistry ? JSON.parse(rawRegistry) : {};
+
+      const entry = registry[cleanEmail];
+      if (!entry) {
+        return {
+          ok: false,
+          error: 'No account found with this email. Please create an account first.',
+        };
+      }
+      if (entry.passwordHash !== btoa(password)) {
+        return { ok: false, error: 'Incorrect password. Please try again.' };
+      }
+
+      setUser(entry.profile);
+      localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
+      localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(entry.profile));
+      const rawLedger = localStorage.getItem(getLedgerStorageKey(entry.profile.id));
+      const nextLedger: LedgerState = rawLedger ? JSON.parse(rawLedger) : EMPTY_LEDGER;
+      persistLedger(entry.profile.id, nextLedger);
+      showToast('success', `Welcome back, ${entry.profile.fullName}`);
+      return { ok: true };
+    },
+    [persistLedger, showToast]
+  );
+
+  const signUp = useCallback(
+    async (
+      fullName: string,
+      email: string,
+      password: string,
+      currency: string = 'INR'
+    ): Promise<{ ok: boolean; error?: string; requiresConfirmation?: boolean }> => {
+      const cleanName = fullName.trim();
+      const cleanEmail = email.trim().toLowerCase();
+      if (!cleanName) return { ok: false, error: 'Please enter your name.' };
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        return { ok: false, error: 'Please enter a valid email address.' };
+      }
+      if (password.length < 6) {
+        return { ok: false, error: 'Password must be at least 6 characters.' };
+      }
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          const { data, error } = await supabase.auth.signUp({
+            email: cleanEmail,
+            password,
+            options: {
+              data: {
+                full_name: cleanName,
+                currency,
+              },
+            },
+          });
+          if (error) {
+            return { ok: false, error: error.message };
+          }
+          if (data.user) {
+            const profile: UserProfile = {
+              id: data.user.id,
+              email: cleanEmail,
+              fullName: cleanName,
+              currency,
+              createdAt: new Date().toISOString(),
+            };
+            setUser(profile);
+            localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
+            localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(profile));
+            persistLedger(profile.id, EMPTY_LEDGER);
+            showToast('success', 'Account created! Start by adding your first financial account.');
+            return {
+              ok: true,
+              requiresConfirmation: Boolean(data.user && !data.session),
+            };
+          }
+        }
+      }
+
+      const rawRegistry = localStorage.getItem(USERS_REGISTRY_STORAGE_KEY);
+      const registry: Record<
+        string,
+        { profile: UserProfile; passwordHash: string }
+      > = rawRegistry ? JSON.parse(rawRegistry) : {};
+
+      if (registry[cleanEmail]) {
+        return {
+          ok: false,
+          error: 'An account with this email already exists. Please sign in.',
+        };
+      }
+
+      const profile: UserProfile = {
+        id: generateId('usr'),
+        email: cleanEmail,
+        fullName: cleanName,
+        currency,
+        createdAt: new Date().toISOString(),
+      };
+
+      registry[cleanEmail] = {
+        profile,
+        passwordHash: btoa(password),
+      };
+
+      localStorage.setItem(USERS_REGISTRY_STORAGE_KEY, JSON.stringify(registry));
+      localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
+      localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(profile));
+      setUser(profile);
+      persistLedger(profile.id, EMPTY_LEDGER);
+      showToast('success', 'Welcome to Pennywise! Create your first account to begin.');
+      return { ok: true };
+    },
+    [persistLedger, showToast]
+  );
+
+  const signOut = useCallback(async () => {
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      if (supabase) {
+        await supabase.auth.signOut();
+      }
+    }
+    localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+    localStorage.setItem(AUTH_SIGNED_OUT_FLAG_KEY, 'true');
+    setUser(null);
+    setLedger(EMPTY_LEDGER);
+    setActiveTab('home');
+    showToast('info', 'Signed out securely');
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login';
+    }
+  }, [showToast, setActiveTab]);
+
+  const sendPasswordResetEmail = useCallback(
+    async (email: string): Promise<{ ok: boolean; error?: string }> => {
+      const cleanEmail = email.trim().toLowerCase();
+      if (!cleanEmail) {
+        return { ok: false, error: 'Please enter your email address.' };
+      }
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          const origin = typeof window !== 'undefined' ? window.location.origin : '';
+          const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+            redirectTo: `${origin}/auth/callback?type=recovery`,
+          });
+          if (error) {
+            return { ok: false, error: error.message };
+          }
+          showToast('success', 'Reset instructions sent to your email');
+          return { ok: true };
+        }
+      }
+
+      showToast('info', 'Password reset instructions sent');
+      return { ok: true };
+    },
+    [showToast]
+  );
+
+  const updatePassword = useCallback(
+    async (password: string): Promise<{ ok: boolean; error?: string }> => {
+      if (!password || password.length < 8) {
+        return { ok: false, error: 'Password must be at least 8 characters.' };
+      }
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          const { error } = await supabase.auth.updateUser({
+            password,
+          });
+          if (error) {
+            return { ok: false, error: error.message };
+          }
+          showToast('success', 'Password updated successfully');
+          return { ok: true };
+        }
+      }
+
+      showToast('success', 'Password updated successfully');
+      return { ok: true };
+    },
+    [showToast]
+  );
+
+  const updateProfile = useCallback(
+    (updates: { fullName?: string; currency?: string }) => {
+      if (!user) return;
+      const updated: UserProfile = {
+        ...user,
+        fullName: updates.fullName?.trim() || user.fullName,
+        currency: updates.currency || user.currency,
+      };
+      setUser(updated);
+      localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(updated));
+
+      const rawRegistry = localStorage.getItem(USERS_REGISTRY_STORAGE_KEY);
+      if (rawRegistry) {
+        const registry = JSON.parse(rawRegistry);
+        if (registry[user.email]) {
+          registry[user.email].profile = updated;
+          localStorage.setItem(USERS_REGISTRY_STORAGE_KEY, JSON.stringify(registry));
+        }
+      }
+      showToast('success', 'Profile preferences updated');
+    },
+    [user, showToast]
+  );
+
+  // Module 4: Account Management
+  const createAccount = useCallback(
+    async (input: {
+      name: string;
+      accountType: AccountType;
+      openingBalance: number;
+      icon: string;
+      description?: string;
+    }) => {
+      if (!user) return { ok: false, error: 'Please sign in first.' };
+      const trimmedName = input.name.trim();
+      if (!trimmedName) return { ok: false, error: 'Account name is required.' };
+      if (isNaN(input.openingBalance) || input.openingBalance < 0) {
+        return { ok: false, error: 'Opening balance must be 0 or greater.' };
+      }
+
+      const duplicate = ledger.accounts.some(
+        (a) => a.name.toLowerCase() === trimmedName.toLowerCase()
+      );
+      if (duplicate) {
+        return { ok: false, error: `An account named "${trimmedName}" already exists.` };
+      }
+
+      const serverRes = await createAccountServerAction({
+        name: trimmedName,
+        accountType: input.accountType,
+        openingBalance: roundMoney(input.openingBalance),
+        icon: input.icon || 'Landmark',
+        description: input.description?.trim(),
+      });
+
+      if (!serverRes.success) {
+        return { ok: false, error: serverRes.error };
+      }
+
+      const now = new Date().toISOString();
+      const newAcc: Account = {
+        id: serverRes.mode === 'supabase' && serverRes.id ? serverRes.id : generateId('acc'),
+        userId: user.id,
+        name: trimmedName,
+        accountType: input.accountType,
+        openingBalance: roundMoney(input.openingBalance),
+        currentBalance: roundMoney(input.openingBalance),
+        icon: input.icon || 'Landmark',
+        description: input.description?.trim() || undefined,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      persistLedger(user.id, {
+        ...ledger,
+        accounts: [...ledger.accounts, newAcc],
+      });
+
+      showToast('success', `${trimmedName} created`);
+      return { ok: true, account: newAcc };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  const updateAccount = useCallback(
+    async (
+      id: string,
+      updates: {
+        name: string;
+        accountType: AccountType;
+        openingBalance: number;
+        icon: string;
+        description?: string;
+      }
+    ) => {
+      if (!user) return { ok: false, error: 'Not signed in.' };
+      const trimmedName = updates.name.trim();
+      if (!trimmedName) return { ok: false, error: 'Account name is required.' };
+      if (isNaN(updates.openingBalance) || updates.openingBalance < 0) {
+        return { ok: false, error: 'Opening balance must be 0 or greater.' };
+      }
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          await supabase
+            .from('accounts')
+            .update({
+              name: trimmedName,
+              account_type: updates.accountType,
+              opening_balance: roundMoney(updates.openingBalance),
+              icon: updates.icon,
+              description: updates.description?.trim() || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', id)
+            .eq('user_id', user.id);
+        }
+      }
+
+      const nextAccounts = ledger.accounts.map((acc) =>
+        acc.id === id
+          ? {
+              ...acc,
+              name: trimmedName,
+              accountType: updates.accountType,
+              openingBalance: roundMoney(updates.openingBalance),
+              icon: updates.icon,
+              description: updates.description?.trim() || undefined,
+              updatedAt: new Date().toISOString(),
+            }
+          : acc
+      );
+
+      persistLedger(user.id, {
+        ...ledger,
+        accounts: nextAccounts,
+      });
+
+      showToast('success', 'Account updated');
+      return { ok: true };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  const deleteAccount = useCallback(
+    async (id: string) => {
+      if (!user) return { ok: false, error: 'Not signed in.' };
+
+      const safety = canSafelyDeleteAccount(id, ledger.transactions, ledger.contributions);
+      if (!safety.allowed) {
+        showToast('error', 'Cannot delete account', safety.reason);
+        return { ok: false, error: safety.reason };
+      }
+
+      const hasRecurring = ledger.recurringRules.some((r) => r.sourceAccountId === id);
+      if (hasRecurring) {
+        const msg =
+          'This account is linked to an automated savings contribution rule. Remove or reassign that rule first.';
+        showToast('error', 'Cannot delete account', msg);
+        return { ok: false, error: msg };
+      }
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          const { error } = await supabase
+            .from('accounts')
+            .delete()
+            .eq('id', id)
+            .eq('user_id', user.id);
+          if (error) return { ok: false, error: error.message };
+        }
+      }
+
+      persistLedger(user.id, {
+        ...ledger,
+        accounts: ledger.accounts.filter((a) => a.id !== id),
+      });
+
+      showToast('info', 'Account deleted');
+      return { ok: true };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  // Module 1 & 2: Transactions & Receipts
+  const isReceiptHashDuplicate = useCallback(
+    (hash: string) => {
+      if (!hash) return false;
+      return ledger.receipts.some((r) => r.receiptHash === hash);
+    },
+    [ledger.receipts]
+  );
+
+  const addTransaction = useCallback(
+    async (input: {
+      accountId: string;
+      title: string;
+      amount: number;
+      transactionType: TransactionType;
+      category: TransactionCategoryName;
+      transactionDate: string;
+      taxAmount?: number;
+      notes?: string;
+      receipt?: {
+        merchantName: string;
+        receiptDate: string;
+        totalAmount: number;
+        taxAmount?: number;
+        suggestedCategory: ExpenseCategoryName;
+        receiptHash: string;
+        rawOcrText?: string;
+        items: ReceiptItemInput[];
+      };
+    }) => {
+      if (!user) return { ok: false, error: 'Please sign in first.' };
+      if (!input.accountId) {
+        return {
+          ok: false,
+          error: 'Please select an account. Every transaction must be linked to an account.',
+        };
+      }
+
+      const targetAccount = ledger.accounts.find((a) => a.id === input.accountId);
+      if (!targetAccount) {
+        return { ok: false, error: 'Selected account was not found.' };
+      }
+
+      const cleanTitle = input.title.trim();
+      if (!cleanTitle) {
+        return { ok: false, error: 'Please enter a merchant or expense title.' };
+      }
+
+      const cleanAmount = roundMoney(input.amount);
+      if (cleanAmount <= 0) {
+        return { ok: false, error: 'Amount must be greater than zero.' };
+      }
+
+      if (input.receipt && isReceiptHashDuplicate(input.receipt.receiptHash)) {
+        return {
+          ok: false,
+          error: 'This receipt has already been recorded. Duplicate receipt prevented.',
+        };
+      }
+
+      const serverRes = await createTransactionServerAction({
+        accountId: input.accountId,
+        title: cleanTitle,
+        amount: cleanAmount,
+        transactionType: input.transactionType,
+        category: input.category,
+        transactionDate: input.transactionDate,
+        taxAmount: input.taxAmount,
+        notes: input.notes?.trim(),
+        receipt: input.receipt,
+      });
+
+      if (!serverRes.success) {
+        return { ok: false, error: serverRes.error };
+      }
+
+      const now = new Date().toISOString();
+      let nextReceipts = ledger.receipts;
+      let receiptId: string | undefined =
+        serverRes.mode === 'supabase' && serverRes.receiptId
+          ? serverRes.receiptId
+          : undefined;
+
+      if (input.receipt) {
+        receiptId = receiptId || generateId('rcpt');
+        const newReceipt: ReceiptRecord = {
+          id: receiptId,
+          userId: user.id,
+          merchantName: input.receipt.merchantName,
+          receiptDate: input.receipt.receiptDate,
+          totalAmount: roundMoney(input.receipt.totalAmount),
+          taxAmount:
+            input.receipt.taxAmount !== undefined
+              ? roundMoney(input.receipt.taxAmount)
+              : undefined,
+          suggestedCategory: input.receipt.suggestedCategory,
+          receiptHash: input.receipt.receiptHash,
+          rawOcrText: input.receipt.rawOcrText,
+          items: input.receipt.items,
+          createdAt: now,
+        };
+        nextReceipts = [newReceipt, ...ledger.receipts];
+      }
+
+      const newTx: Transaction = {
+        id: serverRes.mode === 'supabase' && serverRes.id ? serverRes.id : generateId('tx'),
+        userId: user.id,
+        accountId: input.accountId,
+        receiptId,
+        title: cleanTitle,
+        amount: cleanAmount,
+        transactionType: input.transactionType,
+        category: input.category,
+        transactionDate: input.transactionDate,
+        taxAmount:
+          input.taxAmount !== undefined ? roundMoney(input.taxAmount) : undefined,
+        notes: input.notes?.trim() || undefined,
+        receiptItems: input.receipt?.items,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const nextTransactions = [newTx, ...ledger.transactions].sort(
+        (a, b) =>
+          b.transactionDate.localeCompare(a.transactionDate) ||
+          b.createdAt.localeCompare(a.createdAt)
+      );
+
+      persistLedger(user.id, {
+        ...ledger,
+        receipts: nextReceipts,
+        transactions: nextTransactions,
+      });
+
+      const txMonth = input.transactionDate.slice(0, 7);
+      if (txMonth) {
+        setSelectedMonth(txMonth);
+      }
+
+      showToast(
+        'success',
+        input.transactionType === 'expense' ? 'Expense recorded' : 'Income credited',
+        `${cleanTitle} · ${targetAccount.name}`
+      );
+      return { ok: true, transaction: newTx };
+    },
+    [user, ledger, isReceiptHashDuplicate, persistLedger, showToast]
+  );
+
+  const updateTransaction = useCallback(
+    async (
+      id: string,
+      updates: {
+        accountId: string;
+        title: string;
+        amount: number;
+        transactionType: TransactionType;
+        category: TransactionCategoryName;
+        transactionDate: string;
+        taxAmount?: number;
+        notes?: string;
+        receiptItems?: ReceiptItemInput[];
+      }
+    ) => {
+      if (!user) return { ok: false, error: 'Not signed in.' };
+      if (!updates.accountId) return { ok: false, error: 'Account is required.' };
+      const cleanTitle = updates.title.trim();
+      if (!cleanTitle) return { ok: false, error: 'Title is required.' };
+      const cleanAmount = roundMoney(updates.amount);
+      if (cleanAmount <= 0) return { ok: false, error: 'Amount must be greater than zero.' };
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          await supabase
+            .from('transactions')
+            .update({
+              account_id: updates.accountId,
+              title: cleanTitle,
+              amount: cleanAmount,
+              transaction_type: updates.transactionType,
+              category: updates.category,
+              transaction_date: updates.transactionDate,
+              tax_amount:
+                updates.taxAmount !== undefined ? roundMoney(updates.taxAmount) : null,
+              notes: updates.notes?.trim() || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', id)
+            .eq('user_id', user.id);
+        }
+      }
+
+      const nextTransactions = ledger.transactions
+        .map((tx) =>
+          tx.id === id
+            ? {
+                ...tx,
+                accountId: updates.accountId,
+                title: cleanTitle,
+                amount: cleanAmount,
+                transactionType: updates.transactionType,
+                category: updates.category,
+                transactionDate: updates.transactionDate,
+                taxAmount:
+                  updates.taxAmount !== undefined
+                    ? roundMoney(updates.taxAmount)
+                    : undefined,
+                notes: updates.notes?.trim() || undefined,
+                receiptItems: updates.receiptItems ?? tx.receiptItems,
+                updatedAt: new Date().toISOString(),
+              }
+            : tx
+        )
+        .sort(
+          (a, b) =>
+            b.transactionDate.localeCompare(a.transactionDate) ||
+            b.createdAt.localeCompare(a.createdAt)
+        );
+
+      persistLedger(user.id, {
+        ...ledger,
+        transactions: nextTransactions,
+      });
+
+      showToast('success', 'Transaction updated');
+      return { ok: true };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  const deleteTransaction = useCallback(
+    async (id: string) => {
+      if (!user) return { ok: false, error: 'Not signed in.' };
+      const target = ledger.transactions.find((t) => t.id === id);
+      if (!target) return { ok: false, error: 'Transaction not found.' };
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          await supabase
+            .from('transactions')
+            .delete()
+            .eq('id', id)
+            .eq('user_id', user.id);
+          if (target.receiptId) {
+            await supabase
+              .from('receipts')
+              .delete()
+              .eq('id', target.receiptId)
+              .eq('user_id', user.id);
+          }
+        }
+      }
+
+      persistLedger(user.id, {
+        ...ledger,
+        transactions: ledger.transactions.filter((t) => t.id !== id),
+        receipts: target.receiptId
+          ? ledger.receipts.filter((r) => r.id !== target.receiptId)
+          : ledger.receipts,
+      });
+
+      showToast('info', 'Transaction deleted & balance restored');
+      return { ok: true };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  // Module 3: Savings Goals & Contributions
+  const createGoal = useCallback(
+    async (input: {
+      name: string;
+      targetAmount: number;
+      targetDate?: string;
+      icon: string;
+      initialContribution?: number;
+      sourceAccountId?: string;
+    }) => {
+      if (!user) return { ok: false, error: 'Please sign in first.' };
+      const cleanName = input.name.trim();
+      if (!cleanName) return { ok: false, error: 'Goal name is required.' };
+      const targetAmt = roundMoney(input.targetAmount);
+      if (targetAmt <= 0) return { ok: false, error: 'Target amount must be greater than zero.' };
+
+      const initContrib = roundMoney(input.initialContribution || 0);
+      if (initContrib > 0) {
+        if (!input.sourceAccountId) {
+          return {
+            ok: false,
+            error: 'Please select a source account for your initial contribution.',
+          };
+        }
+        const sourceAcc = ledger.accounts.find((a) => a.id === input.sourceAccountId);
+        if (!sourceAcc) {
+          return { ok: false, error: 'Selected source account was not found.' };
+        }
+        if (sourceAcc.currentBalance < initContrib) {
+          return {
+            ok: false,
+            error: `Insufficient available funds in ${sourceAcc.name} for the initial contribution.`,
+          };
+        }
+      }
+
+      const now = new Date().toISOString();
+      const today = now.slice(0, 10);
+      let goalId = generateId('goal');
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          const { data: gData, error: gErr } = await supabase
+            .from('savings_goals')
+            .insert({
+              user_id: user.id,
+              name: cleanName,
+              target_amount: targetAmt,
+              saved_amount: initContrib,
+              target_date: input.targetDate || null,
+              icon: input.icon || 'smartphone',
+            })
+            .select('id')
+            .single();
+
+          if (gErr) return { ok: false, error: gErr.message };
+          if (gData) goalId = gData.id;
+
+          if (initContrib > 0 && input.sourceAccountId) {
+            await supabase.from('goal_contributions').insert({
+              user_id: user.id,
+              goal_id: goalId,
+              source_account_id: input.sourceAccountId,
+              amount: initContrib,
+              contribution_date: today,
+              notes: 'Initial contribution',
+            });
+          }
+        }
+      }
+
+      const newGoal: SavingsGoal = {
+        id: goalId,
+        userId: user.id,
+        name: cleanName,
+        targetAmount: targetAmt,
+        savedAmount: initContrib,
+        targetDate: input.targetDate || undefined,
+        icon: input.icon || 'smartphone',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const nextContributions = [...ledger.contributions];
+      if (initContrib > 0 && input.sourceAccountId) {
+        nextContributions.unshift({
+          id: generateId('contrib'),
+          userId: user.id,
+          goalId,
+          sourceAccountId: input.sourceAccountId,
+          amount: initContrib,
+          contributionDate: today,
+          notes: 'Initial contribution',
+          createdAt: now,
+        });
+      }
+
+      persistLedger(user.id, {
+        ...ledger,
+        goals: [...ledger.goals, newGoal],
+        contributions: nextContributions,
+      });
+
+      showToast('success', `Goal "${cleanName}" created`);
+      return { ok: true, goal: newGoal };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  const updateGoal = useCallback(
+    async (
+      id: string,
+      updates: {
+        name: string;
+        targetAmount: number;
+        targetDate?: string;
+        icon: string;
+      }
+    ) => {
+      if (!user) return { ok: false, error: 'Not signed in.' };
+      const cleanName = updates.name.trim();
+      if (!cleanName) return { ok: false, error: 'Goal name is required.' };
+      const targetAmt = roundMoney(updates.targetAmount);
+      if (targetAmt <= 0) return { ok: false, error: 'Target amount must be greater than zero.' };
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          await supabase
+            .from('savings_goals')
+            .update({
+              name: cleanName,
+              target_amount: targetAmt,
+              target_date: updates.targetDate || null,
+              icon: updates.icon,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', id)
+            .eq('user_id', user.id);
+        }
+      }
+
+      persistLedger(user.id, {
+        ...ledger,
+        goals: ledger.goals.map((g) =>
+          g.id === id
+            ? {
+                ...g,
+                name: cleanName,
+                targetAmount: targetAmt,
+                targetDate: updates.targetDate || undefined,
+                icon: updates.icon,
+                updatedAt: new Date().toISOString(),
+              }
+            : g
+        ),
+      });
+
+      showToast('success', 'Savings goal updated');
+      return { ok: true };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  const deleteGoal = useCallback(
+    async (id: string) => {
+      if (!user) return { ok: false, error: 'Not signed in.' };
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          await supabase
+            .from('savings_goals')
+            .delete()
+            .eq('id', id)
+            .eq('user_id', user.id);
+        }
+      }
+
+      persistLedger(user.id, {
+        ...ledger,
+        goals: ledger.goals.filter((g) => g.id !== id),
+        contributions: ledger.contributions.filter((c) => c.goalId !== id),
+        recurringRules: ledger.recurringRules.filter((r) => r.goalId !== id),
+      });
+
+      showToast('info', 'Goal removed & allocated funds returned to accounts');
+      return { ok: true };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  const contributeToGoal = useCallback(
+    async (input: {
+      goalId: string;
+      sourceAccountId: string;
+      amount: number;
+      contributionDate?: string;
+      notes?: string;
+    }) => {
+      if (!user) return { ok: false, error: 'Please sign in first.' };
+      const goal = ledger.goals.find((g) => g.id === input.goalId);
+      if (!goal) return { ok: false, error: 'Savings goal not found.' };
+
+      const account = ledger.accounts.find((a) => a.id === input.sourceAccountId);
+      if (!account) return { ok: false, error: 'Please select a valid source account.' };
+
+      const amt = roundMoney(input.amount);
+      if (amt <= 0) return { ok: false, error: 'Contribution amount must be greater than zero.' };
+
+      if (account.currentBalance < amt) {
+        return {
+          ok: false,
+          error: `Insufficient available balance in ${account.name} (Available: ${account.currentBalance}).`,
+        };
+      }
+
+      const dateStr = input.contributionDate || new Date().toISOString().slice(0, 10);
+      let contribId = generateId('contrib');
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          const { data, error } = await supabase
+            .from('goal_contributions')
+            .insert({
+              user_id: user.id,
+              goal_id: input.goalId,
+              source_account_id: input.sourceAccountId,
+              amount: amt,
+              contribution_date: dateStr,
+              notes: input.notes?.trim() || null,
+            })
+            .select('id')
+            .single();
+          if (error) return { ok: false, error: error.message };
+          if (data) contribId = data.id;
+        }
+      }
+
+      const newContrib: GoalContribution = {
+        id: contribId,
+        userId: user.id,
+        goalId: input.goalId,
+        sourceAccountId: input.sourceAccountId,
+        amount: amt,
+        contributionDate: dateStr,
+        notes: input.notes?.trim() || undefined,
+        createdAt: new Date().toISOString(),
+      };
+
+      persistLedger(user.id, {
+        ...ledger,
+        contributions: [newContrib, ...ledger.contributions],
+      });
+
+      showToast('success', `Allocated to ${goal.name}`, `From ${account.name}`);
+      return { ok: true };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  const saveRecurringContribution = useCallback(
+    async (input: {
+      goalId: string;
+      sourceAccountId: string;
+      amount: number;
+      frequency: RecurringFrequency;
+      startDate: string;
+      isEnabled: boolean;
+    }) => {
+      if (!user) return { ok: false, error: 'Not signed in.' };
+      if (!input.sourceAccountId) {
+        return { ok: false, error: 'Please select a source account.' };
+      }
+      const amt = roundMoney(input.amount);
+      if (amt <= 0) {
+        return { ok: false, error: 'Contribution amount must be greater than zero.' };
+      }
+
+      const existing = ledger.recurringRules.find((r) => r.goalId === input.goalId);
+      const now = new Date().toISOString();
+
+      let ruleId = existing?.id || generateId('rec');
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          const { data, error } = await supabase
+            .from('recurring_contributions')
+            .upsert(
+              {
+                id: existing?.id,
+                user_id: user.id,
+                goal_id: input.goalId,
+                source_account_id: input.sourceAccountId,
+                amount: amt,
+                frequency: input.frequency,
+                start_date: input.startDate,
+                next_run_date: input.startDate,
+                is_enabled: input.isEnabled,
+                updated_at: now,
+              },
+              { onConflict: 'goal_id' }
+            )
+            .select('id')
+            .single();
+          if (!error && data) {
+            ruleId = data.id;
+          }
+        }
+      }
+
+      const nextRule: RecurringContribution = {
+        id: ruleId,
+        userId: user.id,
+        goalId: input.goalId,
+        sourceAccountId: input.sourceAccountId,
+        amount: amt,
+        frequency: input.frequency,
+        startDate: input.startDate,
+        nextRunDate:
+          existing && existing.startDate === input.startDate
+            ? existing.nextRunDate
+            : input.startDate,
+        lastProcessedDate: existing?.lastProcessedDate,
+        isEnabled: input.isEnabled,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+
+      const nextRules = existing
+        ? ledger.recurringRules.map((r) => (r.goalId === input.goalId ? nextRule : r))
+        : [...ledger.recurringRules, nextRule];
+
+      persistLedger(user.id, {
+        ...ledger,
+        recurringRules: nextRules,
+      });
+
+      showToast(
+        'success',
+        input.isEnabled
+          ? 'Automated savings allocation enabled'
+          : 'Automated savings allocation paused'
+      );
+      return { ok: true };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  const toggleRecurringContribution = useCallback(
+    async (ruleId: string, isEnabled: boolean) => {
+      if (!user) return { ok: false, error: 'Not signed in.' };
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          await supabase
+            .from('recurring_contributions')
+            .update({ is_enabled: isEnabled, updated_at: new Date().toISOString() })
+            .eq('id', ruleId)
+            .eq('user_id', user.id);
+        }
+      }
+
+      persistLedger(user.id, {
+        ...ledger,
+        recurringRules: ledger.recurringRules.map((r) =>
+          r.id === ruleId ? { ...r, isEnabled, updatedAt: new Date().toISOString() } : r
+        ),
+      });
+
+      showToast(
+        'info',
+        isEnabled ? 'Recurring contribution enabled' : 'Recurring contribution paused'
+      );
+      return { ok: true };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  const deleteRecurringContribution = useCallback(
+    async (ruleId: string) => {
+      if (!user) return { ok: false, error: 'Not signed in.' };
+
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        if (supabase) {
+          await supabase
+            .from('recurring_contributions')
+            .delete()
+            .eq('id', ruleId)
+            .eq('user_id', user.id);
+        }
+      }
+
+      persistLedger(user.id, {
+        ...ledger,
+        recurringRules: ledger.recurringRules.filter((r) => r.id !== ruleId),
+      });
+
+      showToast('info', 'Automated contribution rule removed');
+      return { ok: true };
+    },
+    [user, ledger, persistLedger, showToast]
+  );
+
+  const processDueRecurringContributions = useCallback(async () => {
+    if (!user) return { processedCount: 0 };
+    const today = new Date().toISOString().slice(0, 10);
+
+    let workingAccounts = [...ledger.accounts];
+    let workingGoals = [...ledger.goals];
+    const workingContributions = [...ledger.contributions];
+    const workingRules = [...ledger.recurringRules];
+    let processedCount = 0;
+
+    for (let i = 0; i < workingRules.length; i++) {
+      const rule = { ...workingRules[i] };
+      if (!rule.isEnabled) continue;
+
+      let safetyCounter = 0;
+      while (rule.nextRunDate <= today && safetyCounter < 12) {
+        safetyCounter++;
+        const periodKey = getPeriodKeyForDate(rule.nextRunDate, rule.frequency);
+        const alreadyExecuted = workingContributions.some(
+          (c) => c.recurringRuleId === rule.id && c.periodKey === periodKey
+        );
+
+        if (alreadyExecuted) {
+          rule.nextRunDate = advanceDateByFrequency(rule.nextRunDate, rule.frequency);
+          continue;
+        }
+
+        const synced = synchronizeBalances(
+          workingAccounts,
+          ledger.transactions,
+          workingGoals,
+          workingContributions
+        );
+        workingAccounts = synced.accounts;
+        workingGoals = synced.goals;
+
+        const sourceAcc = workingAccounts.find((a) => a.id === rule.sourceAccountId);
+        const targetGoal = workingGoals.find((g) => g.id === rule.goalId);
+
+        if (!sourceAcc || !targetGoal) break;
+
+        const remainingGoal = roundMoney(targetGoal.targetAmount - targetGoal.savedAmount);
+        if (remainingGoal <= 0) {
+          rule.isEnabled = false;
+          break;
+        }
+
+        const actualAllocation = Math.min(rule.amount, remainingGoal);
+        if (sourceAcc.currentBalance < actualAllocation) {
+          break;
+        }
+
+        const newContrib: GoalContribution = {
+          id: generateId('contrib'),
+          userId: user.id,
+          goalId: rule.goalId,
+          sourceAccountId: rule.sourceAccountId,
+          recurringRuleId: rule.id,
+          periodKey,
+          amount: actualAllocation,
+          contributionDate: rule.nextRunDate,
+          notes: `Automated ${rule.frequency} allocation`,
+          createdAt: new Date().toISOString(),
+        };
+
+        workingContributions.unshift(newContrib);
+        rule.lastProcessedDate = rule.nextRunDate;
+        rule.nextRunDate = advanceDateByFrequency(rule.nextRunDate, rule.frequency);
+        rule.updatedAt = new Date().toISOString();
+        processedCount++;
+      }
+
+      workingRules[i] = rule;
+    }
+
+    if (processedCount > 0) {
+      persistLedger(user.id, {
+        ...ledger,
+        contributions: workingContributions,
+        recurringRules: workingRules,
+      });
+      showToast(
+        'success',
+        `Processed ${processedCount} scheduled savings allocation(s)`
+      );
+    }
+
+    return { processedCount };
+  }, [user, ledger, persistLedger, showToast]);
+
+  useEffect(() => {
+    if (!user || ledger.recurringRules.length === 0) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const hasDue = ledger.recurringRules.some(
+      (r) => r.isEnabled && r.nextRunDate <= today
+    );
+    if (hasDue) {
+      processDueRecurringContributions();
+    }
+  }, [user, ledger.recurringRules, processDueRecurringContributions]);
+
+  const monthlyAnalytics = useMemo(
+    () =>
+      computeMonthlyAnalytics(
+        selectedMonth,
+        ledger.accounts,
+        ledger.transactions,
+        ledger.goals
+      ),
+    [selectedMonth, ledger.accounts, ledger.transactions, ledger.goals]
+  );
+
+  const value = useMemo<PennywiseContextValue>(
+    () => ({
+      user,
+      isAuthLoading,
+      isDataLoading,
+      isSupabaseConnected,
+      activeTab,
+      setActiveTab,
+      selectedMonth,
+      setSelectedMonth,
+      accounts: ledger.accounts,
+      transactions: ledger.transactions,
+      receipts: ledger.receipts,
+      goals: ledger.goals,
+      contributions: ledger.contributions,
+      recurringRules: ledger.recurringRules,
+      monthlyAnalytics,
+      toasts,
+      dismissToast,
+      showToast,
+      isAddExpenseSheetOpen,
+      setIsAddExpenseSheetOpen,
+      activeAddMode,
+      openAddFlow,
+      closeAddFlow,
+      transactionFilters,
+      setTransactionFilters,
+      signIn,
+      signUp,
+      signOut,
+      updateProfile,
+      sendPasswordResetEmail,
+      updatePassword,
+      createAccount,
+      updateAccount,
+      deleteAccount,
+      isReceiptHashDuplicate,
+      addTransaction,
+      updateTransaction,
+      deleteTransaction,
+      createGoal,
+      updateGoal,
+      deleteGoal,
+      contributeToGoal,
+      saveRecurringContribution,
+      toggleRecurringContribution,
+      deleteRecurringContribution,
+      processDueRecurringContributions,
+    }),
+    [
+      user,
+      isAuthLoading,
+      isDataLoading,
+      isSupabaseConnected,
+      activeTab,
+      setActiveTab,
+      selectedMonth,
+      ledger,
+      monthlyAnalytics,
+      toasts,
+      dismissToast,
+      showToast,
+      isAddExpenseSheetOpen,
+      activeAddMode,
+      openAddFlow,
+      closeAddFlow,
+      transactionFilters,
+      signIn,
+      signUp,
+      signOut,
+      updateProfile,
+      sendPasswordResetEmail,
+      updatePassword,
+      createAccount,
+      updateAccount,
+      deleteAccount,
+      isReceiptHashDuplicate,
+      addTransaction,
+      updateTransaction,
+      deleteTransaction,
+      createGoal,
+      updateGoal,
+      deleteGoal,
+      contributeToGoal,
+      saveRecurringContribution,
+      toggleRecurringContribution,
+      deleteRecurringContribution,
+      processDueRecurringContributions,
+    ]
+  );
+
+  return (
+    <PennywiseContext.Provider value={value}>{children}</PennywiseContext.Provider>
+  );
+}
+
+export function usePennywise() {
+  const ctx = useContext(PennywiseContext);
+  if (!ctx) {
+    throw new Error('usePennywise must be used within a PennywiseProvider');
+  }
+  return ctx;
+}
