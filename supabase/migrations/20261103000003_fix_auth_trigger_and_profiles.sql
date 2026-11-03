@@ -89,3 +89,4 @@ CREATE POLICY "Users can update own profile" ON public.profiles
 -- 6. GRANT PERMISSIONS TO POSTGREST ROLES
 GRANT ALL ON TABLE public.profiles TO authenticated, service_role;
 GRANT SELECT, INSERT ON TABLE public.profiles TO anon;
+
