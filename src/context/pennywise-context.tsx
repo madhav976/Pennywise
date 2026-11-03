@@ -517,12 +517,15 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
             email: cleanEmail,
             password,
           });
+
           if (error) {
             return { ok: false, error: error.message };
           }
+
           if (data.user) {
-            const ledgerRes = await fetchUserLedgerAction();
-            const profile: UserProfile = {
+            // Retrieve authoritative user ledger and profile from /api/ledger
+            const ledgerRes = await fetch('/api/ledger');
+            let profile: UserProfile = {
               id: data.user.id,
               email: data.user.email || cleanEmail,
               fullName:
@@ -532,44 +535,28 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
               currency: data.user.user_metadata?.currency || 'INR',
               createdAt: data.user.created_at,
             };
+
+            if (ledgerRes.ok) {
+              const lJson = await ledgerRes.json();
+              if (lJson.success && lJson.data) {
+                profile = lJson.data.user;
+                persistLedger(profile.id, lJson.data.ledger);
+              }
+            }
+
             setUser(profile);
             localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
             localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(profile));
-            if (ledgerRes.data) {
-              persistLedger(profile.id, ledgerRes.data);
-            }
             showToast('success', `Welcome back, ${profile.fullName}`);
             return { ok: true };
           }
         }
       }
 
-      // Local authenticated registry fallback
-      const rawRegistry = localStorage.getItem(USERS_REGISTRY_STORAGE_KEY);
-      const registry: Record<
-        string,
-        { profile: UserProfile; passwordHash: string }
-      > = rawRegistry ? JSON.parse(rawRegistry) : {};
-
-      const entry = registry[cleanEmail];
-      if (!entry) {
-        return {
-          ok: false,
-          error: 'No account found with this email. Please create an account first.',
-        };
-      }
-      if (entry.passwordHash !== btoa(password)) {
-        return { ok: false, error: 'Incorrect password. Please try again.' };
-      }
-
-      setUser(entry.profile);
-      localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
-      localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(entry.profile));
-      const rawLedger = localStorage.getItem(getLedgerStorageKey(entry.profile.id));
-      const nextLedger: LedgerState = rawLedger ? JSON.parse(rawLedger) : EMPTY_LEDGER;
-      persistLedger(entry.profile.id, nextLedger);
-      showToast('success', `Welcome back, ${entry.profile.fullName}`);
-      return { ok: true };
+      return {
+        ok: false,
+        error: 'Invalid email or password. Please verify your credentials.',
+      };
     },
     [persistLedger, showToast]
   );
@@ -587,80 +574,89 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
       if (!cleanEmail || !cleanEmail.includes('@')) {
         return { ok: false, error: 'Please enter a valid email address.' };
       }
-      if (password.length < 6) {
-        return { ok: false, error: 'Password must be at least 6 characters.' };
+      if (password.length < 8) {
+        return { ok: false, error: 'Password must be at least 8 characters.' };
       }
 
       if (isSupabaseConfigured()) {
-        const supabase = createClient();
-        if (supabase) {
-          const { data, error } = await supabase.auth.signUp({
-            email: cleanEmail,
-            password,
-            options: {
-              data: {
-                full_name: cleanName,
-                currency,
-              },
-            },
-          });
-          if (error) {
-            return { ok: false, error: error.message };
-          }
-          if (data.user) {
-            const profile: UserProfile = {
-              id: data.user.id,
-              email: cleanEmail,
+        // 1. Call dedicated server signup endpoint to create auth user and insert into public.profiles
+        try {
+          const res = await fetch('/api/auth/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
               fullName: cleanName,
+              email: cleanEmail,
+              password,
               currency,
-              createdAt: new Date().toISOString(),
-            };
-            setUser(profile);
-            localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
-            localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(profile));
-            persistLedger(profile.id, EMPTY_LEDGER);
-            showToast('success', 'Account created! Start by adding your first financial account.');
+            }),
+          });
+
+          const json = await res.json();
+
+          if (!res.ok || !json.success) {
             return {
-              ok: true,
-              requiresConfirmation: Boolean(data.user && !data.session),
+              ok: false,
+              error: json.error || 'Failed to create your account in Supabase.',
             };
           }
+
+          // 2. Automatically sign in with password to establish the browser session cookies
+          const supabase = createClient();
+          if (supabase) {
+            const { data: signInData, error: signInError } =
+              await supabase.auth.signInWithPassword({
+                email: cleanEmail,
+                password,
+              });
+
+            if (!signInError && signInData.user) {
+              const profile: UserProfile = {
+                id: signInData.user.id,
+                email: cleanEmail,
+                fullName: cleanName,
+                currency,
+                createdAt: new Date().toISOString(),
+              };
+              setUser(profile);
+              localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
+              localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(profile));
+
+              // Fetch synced ledger from server
+              const lRes = await fetch('/api/ledger');
+              if (lRes.ok) {
+                const lJson = await lRes.json();
+                if (lJson.success && lJson.data) {
+                  persistLedger(profile.id, lJson.data.ledger);
+                } else {
+                  persistLedger(profile.id, EMPTY_LEDGER);
+                }
+              } else {
+                persistLedger(profile.id, EMPTY_LEDGER);
+              }
+
+              showToast('success', 'Account created! Welcome to Pennywise.');
+              return { ok: true, requiresConfirmation: false };
+            }
+          }
+
+          // In case session requires email confirmation
+          return {
+            ok: true,
+            requiresConfirmation: Boolean(json.requiresConfirmation),
+          };
+        } catch (apiErr: any) {
+          return {
+            ok: false,
+            error: apiErr?.message || 'Network error connecting to signup service.',
+          };
         }
       }
 
-      const rawRegistry = localStorage.getItem(USERS_REGISTRY_STORAGE_KEY);
-      const registry: Record<
-        string,
-        { profile: UserProfile; passwordHash: string }
-      > = rawRegistry ? JSON.parse(rawRegistry) : {};
-
-      if (registry[cleanEmail]) {
-        return {
-          ok: false,
-          error: 'An account with this email already exists. Please sign in.',
-        };
-      }
-
-      const profile: UserProfile = {
-        id: generateId('usr'),
-        email: cleanEmail,
-        fullName: cleanName,
-        currency,
-        createdAt: new Date().toISOString(),
+      return {
+        ok: false,
+        error: 'Supabase authentication service is not configured.',
       };
-
-      registry[cleanEmail] = {
-        profile,
-        passwordHash: btoa(password),
-      };
-
-      localStorage.setItem(USERS_REGISTRY_STORAGE_KEY, JSON.stringify(registry));
-      localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
-      localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(profile));
-      setUser(profile);
-      persistLedger(profile.id, EMPTY_LEDGER);
-      showToast('success', 'Welcome to Pennywise! Create your first account to begin.');
-      return { ok: true };
     },
     [persistLedger, showToast]
   );

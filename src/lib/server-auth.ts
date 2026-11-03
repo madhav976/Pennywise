@@ -17,7 +17,9 @@ export interface CurrentServerUser {
  * Ensures the user profile exists in public.profiles and returns the Supabase admin client
  * configured with service_role permissions for secure database operations.
  */
-export async function getEffectiveServerUser(): Promise<{
+export async function getEffectiveServerUser(options?: {
+  allowDevFallback?: boolean;
+}): Promise<{
   user: CurrentServerUser;
   supabase: NonNullable<ReturnType<typeof createAdminSupabase>>;
 } | null> {
@@ -74,10 +76,19 @@ export async function getEffectiveServerUser(): Promise<{
       }
     }
   } catch {
-    // Session read error; proceed to dev user fallback
+    // Session read error
   }
 
-  // 2. Development user fallback using PENNYWISE_DEV_USER_ID
+  // 2. In production or strict mode, never fall back to development identity
+  const isProduction =
+    process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+  const allowDev = options?.allowDevFallback ?? !isProduction;
+
+  if (!allowDev) {
+    return null;
+  }
+
+  // 3. Local offline development fallback
   const devUserId = process.env.PENNYWISE_DEV_USER_ID || DEFAULT_DEV_USER_ID;
 
   const { data: devProfile } = await adminClient

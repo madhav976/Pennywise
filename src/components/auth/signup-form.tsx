@@ -82,8 +82,7 @@ export function SignupForm() {
             `A confirmation link has been sent to ${cleanEmail}. Please check your inbox to activate your account.`
           );
         } else {
-          router.push('/dashboard');
-          router.refresh();
+          window.location.href = '/dashboard';
         }
       }
     } catch (err: any) {

@@ -47,8 +47,7 @@ export function LoginForm() {
       if (!res.ok) {
         setError(res.error || 'Invalid email or password.');
       } else {
-        router.push('/dashboard');
-        router.refresh();
+        window.location.href = '/dashboard';
       }
     } catch (err: any) {
       setError(err?.message || 'An unexpected error occurred. Please try again.');
