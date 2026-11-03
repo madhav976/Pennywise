@@ -374,18 +374,18 @@ export function MobileBottomSheet({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Drag Handle */}
-        <div className="pt-3 pb-1 flex justify-center shrink-0">
+        <div className="pt-3 pb-1.5 flex justify-center shrink-0">
           <div className="w-12 h-1.5 rounded-full bg-[#D0D7CC]" />
         </div>
 
         {/* Header */}
-        <div className="px-5 pt-1.5 pb-3 flex items-start justify-between border-b border-[#E7EBE5] shrink-0 bg-[#F5F7F3]">
+        <div className="px-5 sm:px-6 pt-1 pb-3.5 flex items-start justify-between border-b border-[#E7EBE5] shrink-0 bg-[#F5F7F3]">
           <div className="pr-3 min-w-0">
-            <h3 className="text-base sm:text-lg font-bold text-[#191B19] tracking-tight truncate">
+            <h3 className="text-base sm:text-lg font-bold text-[#191B19] tracking-tight">
               {title}
             </h3>
             {subtitle && (
-              <p className="text-xs text-[#777F77] mt-0.5 leading-relaxed truncate">
+              <p className="text-xs text-[#777F77] mt-1 leading-normal">
                 {subtitle}
               </p>
             )}
@@ -394,7 +394,7 @@ export function MobileBottomSheet({
             type="button"
             onClick={onClose}
             aria-label="Close modal"
-            className="w-8 h-8 rounded-full bg-white border border-[#E7EBE5] flex items-center justify-center text-[#191B19] hover:bg-[#EBF0E9] active:scale-95 transition-all shadow-xs shrink-0"
+            className="w-8 h-8 rounded-full bg-white border border-[#E7EBE5] flex items-center justify-center text-[#191B19] hover:bg-[#EBF0E9] active:scale-95 transition-all shadow-xs shrink-0 mt-0.5"
           >
             <X className="w-4 h-4" />
           </button>
@@ -403,7 +403,7 @@ export function MobileBottomSheet({
         {/* Scrollable Content Area */}
         <div
           ref={scrollContainerRef}
-          className={`px-5 py-4 overflow-y-auto overscroll-contain space-y-4 flex-1 ${
+          className={`px-5 sm:px-6 py-4 overflow-y-auto overscroll-contain space-y-4 flex-1 ${
             hideScrollbar ? 'hide-scrollbar' : ''
           } ${footer ? 'pb-3' : 'pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))]'}`}
         >
@@ -412,7 +412,7 @@ export function MobileBottomSheet({
 
         {/* Optional Sticky Footer for CTA buttons */}
         {footer && (
-          <div className="px-5 py-3 border-t border-[#E7EBE5] bg-white shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+          <div className="px-5 sm:px-6 py-3.5 border-t border-[#E7EBE5] bg-white shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
             {footer}
           </div>
         )}

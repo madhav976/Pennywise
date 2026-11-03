@@ -708,17 +708,17 @@ export function HomeScreen() {
               });
               setIsSettingsOpen(false);
             }}
-            className="w-full h-12 rounded-full bg-[#191B19] hover:bg-[#252825] text-[#DFFF52] text-xs font-semibold flex items-center justify-center gap-2 shadow-xs active:scale-[0.98] transition-all"
+            className="w-full h-[52px] rounded-full bg-[#191B19] hover:bg-[#252825] text-[#DFFF52] text-xs font-semibold flex items-center justify-center gap-2 shadow-xs active:scale-[0.98] transition-all"
           >
             <Check className="w-4 h-4 text-[#DFFF52]" />
             <span>Save Preferences</span>
           </button>
         }
       >
-        <div className="space-y-3.5">
+        <div className="space-y-4">
           {/* User Profile Header Card */}
-          <div className="bg-white rounded-[24px] p-4.5 border border-[#E7EBE5] shadow-xs">
-            <div className="flex items-center gap-3.5">
+          <div className="bg-white rounded-[24px] p-5 border border-[#E7EBE5] shadow-xs">
+            <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-2xl bg-[#191B19] text-[#DFFF52] flex items-center justify-center text-base font-bold shrink-0 shadow-xs">
                 {(user?.fullName || user?.email || 'P').charAt(0).toUpperCase()}
               </div>
@@ -737,9 +737,9 @@ export function HomeScreen() {
           </div>
 
           {/* Preferences Section */}
-          <div className="bg-white rounded-[24px] p-4.5 border border-[#E7EBE5] shadow-xs space-y-3.5">
+          <div className="bg-white rounded-[24px] p-5 border border-[#E7EBE5] shadow-xs space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
+              <label className="block text-xs font-semibold text-[#191B19] mb-2">
                 Display Name
               </label>
               <input
@@ -752,10 +752,10 @@ export function HomeScreen() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
+              <label className="block text-xs font-semibold text-[#191B19] mb-2">
                 Preferred Currency
               </label>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-4 gap-2.5">
                 {[
                   { code: 'INR', symbol: '₹' },
                   { code: 'USD', symbol: '$' },
@@ -768,14 +768,14 @@ export function HomeScreen() {
                       key={code}
                       type="button"
                       onClick={() => setProfileCurrency(code)}
-                      className={`h-11 rounded-2xl text-xs font-semibold border flex flex-col items-center justify-center transition-all active:scale-95 ${
+                      className={`h-12 rounded-2xl text-xs font-semibold border flex flex-col items-center justify-center gap-0.5 transition-all active:scale-95 ${
                         active
-                          ? 'bg-[#191B19] border-[#191B19] text-[#DFFF52] shadow-xs'
+                          ? 'bg-[#191B19] border-[#191B19] text-[#DFFF52] shadow-xs ring-1 ring-[#191B19]'
                           : 'bg-[#F5F7F3] border-[#E7EBE5] text-[#777F77] hover:border-[#191B19] hover:bg-white'
                       }`}
                     >
-                      <span>{code}</span>
-                      <span className="text-[10px] opacity-75 font-normal">{symbol}</span>
+                      <span className="font-bold">{code}</span>
+                      <span className="text-[10px] opacity-80 font-medium">{symbol}</span>
                     </button>
                   );
                 })}
@@ -785,19 +785,19 @@ export function HomeScreen() {
 
           {/* Backend Sync Information */}
           <div className="p-4 rounded-[24px] bg-white border border-[#E7EBE5] shadow-xs flex items-center justify-between text-xs">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3.5">
               <span
-                className={`w-3 h-3 rounded-full shrink-0 ${
+                className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                   isSupabaseConnected
                     ? 'bg-[#2E7D32] ring-4 ring-[#EBF0E9]'
                     : 'bg-[#F59E0B] ring-4 ring-[#FEF3C7]'
                 }`}
               />
-              <div>
-                <p className="font-semibold text-[#191B19]">
+              <div className="min-w-0">
+                <p className="font-semibold text-[#191B19] leading-snug">
                   {isSupabaseConnected ? 'Cloud Sync Active' : 'Local Encrypted Mode'}
                 </p>
-                <p className="text-[11px] text-[#777F77] mt-0.5">
+                <p className="text-[11px] text-[#777F77] mt-0.5 leading-tight">
                   {isSupabaseConnected
                     ? 'Supabase PostgreSQL · Multi-User RLS Enforced'
                     : 'Local encrypted ledger'}

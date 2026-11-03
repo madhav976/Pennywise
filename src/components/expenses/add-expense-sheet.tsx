@@ -1079,7 +1079,7 @@ export function AddExpenseSheet() {
               )}
 
               {/* PROMINENT FINAL PAYABLE AMOUNT CARD */}
-              <div className="bg-[#191B19] text-white rounded-[24px] p-4.5 border border-[#191B19] shadow-pw-card space-y-2">
+              <div className="bg-[#191B19] text-white rounded-[24px] p-5 border border-[#191B19] shadow-pw-card space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-white/70 font-medium">Final Payable Amount</span>
                   <span className="px-2 py-0.5 rounded-full bg-[#DFFF52] text-[#191B19] text-[10px] font-bold uppercase tracking-wider">

@@ -614,9 +614,9 @@ export function GoalsScreen() {
           )}
 
           {/* Section 1: Goal Details */}
-          <div className="bg-white rounded-[24px] p-4.5 border border-[#E7EBE5] shadow-xs space-y-3.5">
+          <div className="bg-white rounded-[24px] p-5 border border-[#E7EBE5] shadow-xs space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
+              <label className="block text-xs font-semibold text-[#191B19] mb-2">
                 Goal Name *
               </label>
               <input
@@ -629,13 +629,13 @@ export function GoalsScreen() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3.5">
               <div>
-                <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
+                <label className="block text-xs font-semibold text-[#191B19] mb-2">
                   Target ({currency}) *
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777F77]">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777F77] pointer-events-none">
                     {currency === 'INR' ? '₹' : currency}
                   </span>
                   <input
@@ -652,28 +652,28 @@ export function GoalsScreen() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
+                <label className="block text-xs font-semibold text-[#191B19] mb-2">
                   Target Date
                 </label>
                 <input
                   type="date"
                   value={targetDate}
                   onChange={(e) => setTargetDate(e.target.value)}
-                  className="w-full h-12 px-3 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs font-semibold text-[#191B19] focus:outline-none focus:border-[#191B19] transition-all"
+                  className="w-full h-12 px-3.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs font-semibold text-[#191B19] focus:outline-none focus:border-[#191B19] transition-all"
                 />
               </div>
             </div>
           </div>
 
           {/* Section 2: Goal Icon Selection Grid */}
-          <div className="bg-white rounded-[24px] p-4.5 border border-[#E7EBE5] shadow-xs space-y-2.5">
+          <div className="bg-white rounded-[24px] p-5 border border-[#E7EBE5] shadow-xs space-y-3">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-semibold text-[#191B19]">
                 Goal Icon
               </label>
-              <span className="text-[11px] text-[#777F77]">Tap to select badge</span>
+              <span className="text-[11px] font-medium text-[#777F77]">Tap to select badge</span>
             </div>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-5 gap-2.5">
               {GOAL_ICONS.map((item) => {
                 const selected = goalIcon === item.id;
                 return (
@@ -681,14 +681,14 @@ export function GoalsScreen() {
                     key={item.id}
                     type="button"
                     onClick={() => setGoalIcon(item.id)}
-                    className={`min-h-[68px] p-1.5 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
+                    className={`h-[74px] p-1.5 rounded-2xl border flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95 ${
                       selected
                         ? 'bg-[#191B19] border-[#191B19] text-[#DFFF52] shadow-sm ring-2 ring-[#191B19]'
                         : 'bg-[#F5F7F3] border-[#E7EBE5] text-[#191B19] hover:bg-white hover:border-[#191B19]'
                     }`}
                   >
                     <PwIcon name={item.icon} className="w-5 h-5 shrink-0" />
-                    <span className="text-[10px] font-medium leading-tight text-center text-current line-clamp-2 px-0.5">
+                    <span className="text-[10px] font-medium leading-[1.15] text-center text-current line-clamp-2 px-0.5">
                       {item.label}
                     </span>
                   </button>
@@ -699,16 +699,16 @@ export function GoalsScreen() {
 
           {/* Section 3: Initial Contribution (Only when creating a new goal) */}
           {!editingGoal && (
-            <div className="bg-white rounded-[24px] p-4.5 border border-[#E7EBE5] shadow-xs space-y-3.5">
+            <div className="bg-white rounded-[24px] p-5 border border-[#E7EBE5] shadow-xs space-y-3.5">
               <div>
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-2">
                   <label className="block text-xs font-semibold text-[#191B19]">
                     Initial Contribution ({currency})
                   </label>
-                  <span className="text-[11px] text-[#777F77]">Optional</span>
+                  <span className="text-[11px] font-medium text-[#777F77]">Optional</span>
                 </div>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777F77]">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777F77] pointer-events-none">
                     {currency === 'INR' ? '₹' : currency}
                   </span>
                   <input
@@ -724,8 +724,8 @@ export function GoalsScreen() {
               </div>
 
               {parseFloat(initialContribution) > 0 && (
-                <div className="animate-fadeIn">
-                  <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
+                <div className="animate-fadeIn pt-1">
+                  <label className="block text-xs font-semibold text-[#191B19] mb-2">
                     Source Account *
                   </label>
                   {accounts.length === 0 ? (
