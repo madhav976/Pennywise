@@ -317,54 +317,60 @@ export function MobileBottomSheet({
 }) {
   React.useEffect(() => {
     if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         onClose();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-center bg-[#191B19]/40 backdrop-blur-[2px] animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex justify-center bg-[#191B19]/50 backdrop-blur-[3px] animate-fadeIn">
       <div
         className="w-full max-w-[430px] flex flex-col justify-end h-full"
         onClick={onClose}
       >
         <div
-          className="bg-[#F5F7F3] rounded-t-[32px] border-t border-[#E7EBE5] shadow-pw-elevated max-h-[92dvh] flex flex-col overflow-hidden animate-slideUp"
+          className="bg-[#F5F7F3] rounded-t-[36px] border-t border-[#E7EBE5] shadow-pw-elevated max-h-[90dvh] flex flex-col overflow-hidden animate-slideUp"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Drag Handle */}
-          <div className="pt-3 pb-1 flex justify-center">
-            <div className="w-10 h-1.5 rounded-full bg-[#D0D7CC]" />
+          <div className="pt-3.5 pb-1 flex justify-center">
+            <div className="w-12 h-1.5 rounded-full bg-[#D0D7CC]" />
           </div>
 
           {/* Header */}
-          <div className="px-5 pt-2 pb-3.5 flex items-start justify-between border-b border-[#E7EBE5]">
-            <div>
-              <h3 className="text-[17px] font-semibold text-[#191B19] tracking-tight">
+          <div className="px-5 pt-2 pb-3.5 flex items-start justify-between border-b border-[#E7EBE5] shrink-0">
+            <div className="pr-2">
+              <h3 className="text-lg font-bold text-[#191B19] tracking-tight">
                 {title}
               </h3>
               {subtitle && (
-                <p className="text-xs text-[#777F77] mt-0.5">{subtitle}</p>
+                <p className="text-xs text-[#777F77] mt-0.5 leading-relaxed">{subtitle}</p>
               )}
             </div>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close modal"
-              className="w-8 h-8 rounded-full bg-white border border-[#E7EBE5] flex items-center justify-center text-[#191B19] active:scale-95 transition-transform"
+              className="w-8 h-8 rounded-full bg-white border border-[#E7EBE5] flex items-center justify-center text-[#191B19] hover:bg-[#EBF0E9] active:scale-95 transition-all shadow-xs shrink-0"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           {/* Scrollable Body */}
-          <div className="px-5 py-4 overflow-y-auto overscroll-contain space-y-4 pb-8">
+          <div className="px-5 py-4 overflow-y-auto overscroll-contain space-y-4 pb-10 flex-1">
             {children}
           </div>
         </div>

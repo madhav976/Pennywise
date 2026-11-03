@@ -126,20 +126,21 @@ export function MobileAppShell() {
           aria-label="Primary Bottom Navigation"
           className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-40 px-3 pb-3 pt-1 bg-gradient-to-t from-[#F5F7F3] via-[#F5F7F3]/95 to-transparent"
         >
-          <div className="bg-[#202320] text-white rounded-[28px] px-2 py-2 shadow-pw-nav flex items-center justify-around border border-[#191B19]">
+          <div className="bg-[#202320] text-white rounded-[28px] px-1.5 py-2 shadow-pw-nav grid grid-cols-5 items-center border border-[#191B19]">
             {navItems.map((item) => {
               const Icon = item.icon;
               if (item.id === 'add') {
                 return (
-                  <button
-                    key="add"
-                    type="button"
-                    onClick={() => openAddFlow('chooser')}
-                    aria-label="Add Expense"
-                    className="w-12 h-12 -mt-4 rounded-2xl bg-[#DFFF52] text-[#191B19] shadow-pw-lime border-2 border-[#202320] flex items-center justify-center active:scale-95 transition-transform"
-                  >
-                    <Plus className="w-6 h-6 stroke-[2.5]" />
-                  </button>
+                  <div key="add" className="flex items-center justify-center">
+                    <button
+                      type="button"
+                      onClick={() => openAddFlow('chooser')}
+                      aria-label="Add Expense"
+                      className="w-12 h-12 rounded-full bg-[#DFFF52] text-[#191B19] shadow-pw-lime border-2 border-[#202320] flex items-center justify-center -translate-y-2 active:scale-95 transition-transform"
+                    >
+                      <Plus className="w-6 h-6 stroke-[2.5] block m-auto" />
+                    </button>
+                  </div>
                 );
               }
 
@@ -149,14 +150,14 @@ export function MobileAppShell() {
                   key={item.id}
                   type="button"
                   onClick={() => setActiveTab(item.id as NavTab)}
-                  className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-2xl transition-all ${
+                  className={`flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all ${
                     isActive
                       ? 'text-[#DFFF52]'
                       : 'text-white/60 hover:text-white/90'
                   }`}
                 >
                   <Icon className="w-5 h-5" />
-                  <span className="text-[10px] font-medium mt-1">
+                  <span className="text-[10px] font-medium mt-1 tracking-tight">
                     {item.label}
                   </span>
                 </button>

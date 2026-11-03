@@ -20,6 +20,7 @@ import {
   MobileBottomSheet,
   PercentagePillBadge,
   PwIcon,
+  PwSpinner,
   SegmentedCapsuleBar,
 } from '@/components/ui/pw-icon';
 import {
@@ -71,6 +72,7 @@ export function HomeScreen() {
   const [onboardAccName, setOnboardAccName] = useState('Salary Account');
   const [onboardAccType, setOnboardAccType] = useState<AccountType>('salary');
   const [onboardAccBalance, setOnboardAccBalance] = useState('');
+  const [onboardAccIncome, setOnboardAccIncome] = useState('');
   const [onboardError, setOnboardError] = useState<string | null>(null);
   const [isCreatingAcc, setIsCreatingAcc] = useState(false);
 
@@ -89,6 +91,16 @@ export function HomeScreen() {
       return;
     }
 
+    const incomeVal = onboardAccIncome.trim() ? parseFloat(onboardAccIncome) : undefined;
+    if (
+      onboardAccType === 'salary' &&
+      incomeVal !== undefined &&
+      (isNaN(incomeVal) || incomeVal < 0)
+    ) {
+      setOnboardError('Please enter a valid monthly income (0 or greater).');
+      return;
+    }
+
     setIsCreatingAcc(true);
     try {
       const iconMap: Record<AccountType, string> = {
@@ -103,6 +115,7 @@ export function HomeScreen() {
         name: onboardAccName.trim(),
         accountType: onboardAccType,
         openingBalance: bal,
+        monthlyIncome: onboardAccType === 'salary' ? incomeVal : undefined,
         icon: iconMap[onboardAccType] || 'Landmark',
       });
       if (!res.ok) {
@@ -114,26 +127,22 @@ export function HomeScreen() {
   }
 
   const recentTransactions = transactions.slice(0, 5);
-  const firstName = (user?.fullName || 'There').split(' ')[0];
+  const displayName =
+    user?.fullName?.trim() || user?.email?.split('@')[0] || 'My Workspace';
 
   return (
     <div className="space-y-4 pb-6">
-      {/* 1. HEADER: Logo/Wordmark, Greeting & Profile/Settings */}
+      {/* 1. HEADER: User Name Greeting & Profile/Settings */}
       <header className="flex items-center justify-between pt-1">
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-2xl bg-[#191B19] flex items-center justify-center text-[#DFFF52]">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-[#191B19] flex items-center justify-center text-[#DFFF52] shadow-xs shrink-0">
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold tracking-tight text-[#191B19]">
-                Pennywise
-              </span>
-              <span className="px-2 py-0.2 rounded-full bg-[#EBF0E9] border border-[#E7EBE5] text-[10px] font-medium text-[#777F77]">
-                Mobile
-              </span>
-            </div>
-            <p className="text-xs text-[#777F77]">Hello, {firstName}</p>
+            <h2 className="text-sm font-bold tracking-tight text-[#191B19] leading-tight">
+              {displayName}
+            </h2>
+            <p className="text-xs text-[#777F77]">Good to see you</p>
           </div>
         </div>
 
@@ -162,20 +171,10 @@ export function HomeScreen() {
         </div>
       </header>
 
-      {/* Editorial Display Title inspired by UI Reference */}
-      <div className="pt-0.5 flex items-end justify-between gap-2">
-        <h1 className="text-[25px] leading-[1.18] font-normal tracking-tight text-[#191B19]">
-          Managing{' '}
-          <span className="inline-flex items-center justify-center align-middle w-8 h-6 rounded-full bg-[#EBF0E9] border border-[#E7EBE5] mx-0.5">
-            <Wallet className="w-3.5 h-3.5 text-[#191B19]" />
-          </span>{' '}
-          Finances
-          <br />
-          and{' '}
-          <span className="inline-flex items-center justify-center align-middle w-9 h-6 rounded-full bg-[#DFFF52] mx-0.5">
-            <Sparkles className="w-3.5 h-3.5 text-[#191B19]" />
-          </span>{' '}
-          Spending
+      {/* Brand Dashboard Title */}
+      <div className="pt-1 flex items-center justify-between gap-2">
+        <h1 className="text-2xl font-bold tracking-tight text-[#191B19]">
+          PennyWise
         </h1>
 
         {/* Compact Month Switcher */}
@@ -184,77 +183,91 @@ export function HomeScreen() {
             type="button"
             onClick={() => shiftMonth(-1)}
             aria-label="Previous month"
-            className="w-6 h-6 rounded-full hover:bg-[#EBF0E9] flex items-center justify-center text-[#191B19]"
+            className="w-6 h-6 rounded-full hover:bg-[#EBF0E9] flex items-center justify-center text-[#191B19] transition-colors"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
           </button>
-          <span className="px-1.5 text-[11px] font-semibold text-[#191B19]">
+          <span className="px-2 text-[11px] font-semibold text-[#191B19]">
             {formatMonthLabel(selectedMonth, true)}
           </span>
           <button
             type="button"
             onClick={() => shiftMonth(1)}
             aria-label="Next month"
-            className="w-6 h-6 rounded-full hover:bg-[#EBF0E9] flex items-center justify-center text-[#191B19]"
+            className="w-6 h-6 rounded-full hover:bg-[#EBF0E9] flex items-center justify-center text-[#191B19] transition-colors"
           >
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/* 2. ONBOARDING FOR NEW USERS (When 0 Accounts Exist) OR FINANCIAL OVERVIEW */}
+      {/* 2. PREMIUM ONBOARDING FOR NEW USERS (When 0 Accounts Exist) */}
       {accounts.length === 0 ? (
-        <div className="bg-white rounded-[28px] p-5 border border-[#E7EBE5] shadow-pw-elevated space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#DFFF52] text-[10px] font-semibold text-[#191B19]">
+        <div className="bg-white rounded-[28px] p-6 border border-[#E7EBE5] shadow-pw-card space-y-5 animate-fadeIn">
+          {/* Header & Step Indicator */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EBF0E9] border border-[#E7EBE5] text-[11px] font-semibold text-[#191B19]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2E7D32]" />
                 Step 1 · Welcome Onboarding
               </span>
-              <h2 className="text-base font-semibold text-[#191B19] mt-1.5">
-                Create your first financial account
+              <span className="text-[11px] font-medium text-[#777F77]">Quick Setup</span>
+            </div>
+            <div>
+              <h2 className="text-xl font-bold tracking-tight text-[#191B19]">
+                Set up your first account
               </h2>
-              <p className="text-xs text-[#777F77] mt-0.5 leading-relaxed">
-                Pennywise keeps real financial records with zero placeholder data. Set up your first account to start scanning receipts and tracking expenses.
+              <p className="text-xs text-[#777F77] mt-1 leading-relaxed">
+                Pennywise links all your expenses, transactions, and savings to real accounts. Choose a starting account type below:
               </p>
             </div>
           </div>
 
-          {/* Quick Account Type Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
-            {[
-              { label: 'Salary Account', type: 'salary' as AccountType },
-              { label: 'Savings Account', type: 'savings' as AccountType },
-              { label: 'Cash Wallet', type: 'cash' as AccountType },
-              { label: 'Personal Account', type: 'personal' as AccountType },
-            ].map((item) => {
-              const active = onboardAccName === item.label;
-              return (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => {
-                    setOnboardAccName(item.label);
-                    setOnboardAccType(item.type);
-                  }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all ${
-                    active
-                      ? 'bg-[#191B19] text-white'
-                      : 'bg-[#EBF0E9] text-[#191B19]'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              );
-            })}
+          {/* Account Type Selection Chips */}
+          <div>
+            <label className="block text-[11px] font-medium text-[#777F77] mb-2">
+              Select Account Type
+            </label>
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+              {[
+                { label: 'Salary Account', type: 'salary' as AccountType },
+                { label: 'Savings Account', type: 'savings' as AccountType },
+                { label: 'Cash Wallet', type: 'cash' as AccountType },
+                { label: 'Personal Account', type: 'personal' as AccountType },
+              ].map((item) => {
+                const active = onboardAccType === item.type;
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => {
+                      setOnboardAccName(item.label);
+                      setOnboardAccType(item.type);
+                    }}
+                    className={`px-3.5 py-2 rounded-2xl text-xs font-semibold shrink-0 transition-all active:scale-95 ${
+                      active
+                        ? 'bg-[#191B19] text-white border border-[#191B19] shadow-xs'
+                        : 'bg-[#F5F7F3] hover:bg-white text-[#191B19] border border-[#E7EBE5]'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <form onSubmit={handleOnboardingCreateAccount} className="space-y-3">
+          <form onSubmit={handleOnboardingCreateAccount} className="space-y-4">
             {onboardError && (
-              <p className="text-xs text-[#E5484D] font-medium">{onboardError}</p>
+              <div className="p-3 rounded-2xl bg-[#FFEFEF] border border-[#F5C2C7] text-xs text-[#B42318] flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#E5484D] shrink-0" />
+                <span>{onboardError}</span>
+              </div>
             )}
-            <div className="grid grid-cols-2 gap-2.5">
+
+            <div className="space-y-3.5">
               <div>
-                <label className="block text-[10px] font-medium text-[#777F77] mb-1">
+                <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
                   Account Name
                 </label>
                 <input
@@ -262,35 +275,75 @@ export function HomeScreen() {
                   required
                   value={onboardAccName}
                   onChange={(e) => setOnboardAccName(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs font-semibold text-[#191B19]"
+                  placeholder="e.g. Primary Salary Account"
+                  className="w-full h-12 px-4 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-medium text-[#191B19] placeholder:text-[#9BA39B] focus:outline-none focus:border-[#191B19] focus:ring-1 focus:ring-[#191B19] transition-all"
                 />
               </div>
+
               <div>
-                <label className="block text-[10px] font-medium text-[#777F77] mb-1">
+                <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
                   Opening Balance ({currency})
                 </label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  step="0.01"
-                  value={onboardAccBalance}
-                  onChange={(e) => setOnboardAccBalance(e.target.value)}
-                  placeholder="e.g. 50000"
-                  className="w-full px-3 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs font-semibold text-[#191B19]"
-                />
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777F77]">
+                    {currency === 'INR' ? '₹' : currency}
+                  </span>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="0.01"
+                    value={onboardAccBalance}
+                    onChange={(e) => setOnboardAccBalance(e.target.value)}
+                    placeholder="e.g. 50000"
+                    className="w-full h-12 pl-9 pr-4 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-semibold text-[#191B19] placeholder:text-[#9BA39B] focus:outline-none focus:border-[#191B19] focus:ring-1 focus:ring-[#191B19] transition-all"
+                  />
+                </div>
               </div>
+
+              {/* Monthly Income field for Salary Accounts */}
+              {onboardAccType === 'salary' && (
+                <div className="pt-0.5 animate-fadeIn">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-[#191B19]">
+                      Monthly Income ({currency})
+                    </label>
+                    <span className="text-[11px] text-[#777F77]">Optional</span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777F77]">
+                      {currency === 'INR' ? '₹' : currency}
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={onboardAccIncome}
+                      onChange={(e) => setOnboardAccIncome(e.target.value)}
+                      placeholder="e.g. 75000"
+                      className="w-full h-12 pl-9 pr-4 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-semibold text-[#191B19] placeholder:text-[#9BA39B] focus:outline-none focus:border-[#191B19] focus:ring-1 focus:ring-[#191B19] transition-all"
+                    />
+                  </div>
+                  <p className="text-[11px] text-[#777F77] mt-1">
+                    Recorded as your regular salary for analytics; does not alter opening balance.
+                  </p>
+                </div>
+              )}
             </div>
 
             <button
               type="submit"
               disabled={isCreatingAcc}
-              className="w-full py-3.5 rounded-full bg-[#191B19] text-white text-xs font-semibold flex items-center justify-center gap-1.5"
+              className="w-full h-12 rounded-full bg-[#191B19] hover:bg-[#252825] text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] transition-all disabled:opacity-50"
             >
-              <Plus className="w-4 h-4 text-[#DFFF52]" />
+              {isCreatingAcc ? (
+                <PwSpinner className="w-4 h-4 text-[#DFFF52]" />
+              ) : (
+                <ArrowUpRight className="w-4 h-4 text-[#DFFF52]" />
+              )}
               <span>
                 {isCreatingAcc
-                  ? 'Creating Account...'
+                  ? 'Setting Up Account...'
                   : 'Create First Account & Start Tracking'}
               </span>
             </button>
@@ -643,41 +696,58 @@ export function HomeScreen() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         title="Profile & Preferences"
-        subtitle={user?.email || 'Personal Finance Workspace'}
+        subtitle={user?.email || 'Authenticated Account'}
       >
         <div className="space-y-4">
-          <div className="bg-white rounded-[24px] p-4 border border-[#E7EBE5] space-y-3">
+          {/* Profile Section */}
+          <div className="bg-white rounded-[24px] p-5 border border-[#E7EBE5] shadow-xs space-y-4">
+            <div className="flex items-center gap-3 pb-2 border-b border-[#E7EBE5]">
+              <div className="w-12 h-12 rounded-2xl bg-[#191B19] text-[#DFFF52] flex items-center justify-center text-base font-bold shrink-0">
+                {(user?.fullName || user?.email || 'P').charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-[#191B19] truncate">
+                  {user?.fullName || 'Pennywise Member'}
+                </p>
+                <p className="text-xs text-[#777F77] truncate">{user?.email}</p>
+              </div>
+            </div>
+
             <div>
-              <label className="block text-[11px] font-medium text-[#777F77] mb-1">
+              <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
                 Display Name
               </label>
               <input
                 type="text"
                 value={profileName}
                 onChange={(e) => setProfileName(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-medium text-[#191B19]"
+                placeholder="Your full name"
+                className="w-full h-12 px-4 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-medium text-[#191B19] placeholder:text-[#9BA39B] focus:outline-none focus:border-[#191B19] focus:ring-1 focus:ring-[#191B19] transition-all"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-[#777F77] mb-1.5">
+              <label className="block text-xs font-semibold text-[#191B19] mb-2">
                 Preferred Currency
               </label>
               <div className="grid grid-cols-4 gap-2">
-                {['INR', 'USD', 'EUR', 'GBP'].map((code) => (
-                  <button
-                    key={code}
-                    type="button"
-                    onClick={() => setProfileCurrency(code)}
-                    className={`py-2 rounded-xl text-xs font-semibold border ${
-                      profileCurrency === code
-                        ? 'bg-[#DFFF52] border-[#CBEB3B] text-[#191B19]'
-                        : 'bg-[#F5F7F3] border-[#E7EBE5] text-[#777F77]'
-                    }`}
-                  >
-                    {code}
-                  </button>
-                ))}
+                {['INR', 'USD', 'EUR', 'GBP'].map((code) => {
+                  const active = profileCurrency === code;
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => setProfileCurrency(code)}
+                      className={`h-11 rounded-2xl text-xs font-semibold border transition-all active:scale-95 ${
+                        active
+                          ? 'bg-[#191B19] border-[#191B19] text-[#DFFF52] shadow-xs'
+                          : 'bg-[#F5F7F3] border-[#E7EBE5] text-[#777F77] hover:border-[#191B19] hover:bg-white'
+                      }`}
+                    >
+                      {code}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -690,34 +760,36 @@ export function HomeScreen() {
                 });
                 setIsSettingsOpen(false);
               }}
-              className="w-full py-3 rounded-full bg-[#191B19] text-white text-xs font-semibold"
+              className="w-full h-12 rounded-full bg-[#191B19] hover:bg-[#252825] text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-xs active:scale-[0.98] transition-all"
             >
               Save Preferences
             </button>
           </div>
 
-          <div className="p-4 rounded-[24px] bg-[#EBF0E9] border border-[#E7EBE5] flex items-center justify-between text-xs">
+          {/* Backend Sync Information */}
+          <div className="p-4 rounded-[24px] bg-white border border-[#E7EBE5] shadow-xs flex items-center justify-between text-xs">
             <div>
-              <p className="font-semibold text-[#191B19]">Backend Connection</p>
+              <p className="font-semibold text-[#191B19]">Cloud Sync & Ledger</p>
               <p className="text-[11px] text-[#777F77] mt-0.5">
                 {isSupabaseConnected
-                  ? 'Connected to Supabase PostgreSQL + RLS'
-                  : 'Local Encrypted Ledger (Add Supabase URL in .env.local for cloud sync)'}
+                  ? 'Connected to Supabase PostgreSQL with Multi-User RLS'
+                  : 'Local Encrypted Mode'}
               </p>
             </div>
             <span className="w-2.5 h-2.5 rounded-full bg-[#2E7D32] shrink-0" />
           </div>
 
+          {/* Sign Out Action */}
           <button
             type="button"
             onClick={async () => {
               setIsSettingsOpen(false);
               await signOut();
             }}
-            className="w-full py-3.5 rounded-full bg-white border border-[#F5C2C7] text-[#E5484D] text-xs font-semibold flex items-center justify-center gap-1.5"
+            className="w-full h-12 rounded-full bg-white border border-[#F5C2C7] text-[#E5484D] hover:bg-[#FFEFEF] text-xs font-semibold flex items-center justify-center gap-2 shadow-xs active:scale-[0.98] transition-all"
           >
             <LogOut className="w-4 h-4" />
-            <span>Sign Out</span>
+            <span>Sign Out Securely</span>
           </button>
         </div>
       </MobileBottomSheet>

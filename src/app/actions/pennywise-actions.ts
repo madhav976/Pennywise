@@ -22,6 +22,7 @@ const AccountInputSchema = z.object({
   name: z.string().trim().min(1, 'Account name is required').max(60),
   accountType: z.enum(['salary', 'savings', 'cash', 'personal', 'credit', 'custom']),
   openingBalance: z.number().min(0, 'Opening balance cannot be negative'),
+  monthlyIncome: z.number().min(0, 'Monthly income cannot be negative').optional(),
   icon: z.string().min(1),
   description: z.string().max(160).optional(),
 });
@@ -108,18 +109,29 @@ export async function fetchUserLedgerAction() {
     itemsByReceipt.set(row.receipt_id, list);
   }
 
-  const accounts: Account[] = (accountsRes.data || []).map((r: any) => ({
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    accountType: r.account_type as AccountType,
-    openingBalance: roundMoney(r.opening_balance),
-    currentBalance: roundMoney(r.current_balance),
-    icon: r.icon || 'Landmark',
-    description: r.description || undefined,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  }));
+  const accounts: Account[] = (accountsRes.data || []).map((r: any) => {
+    const incomeMatch = r.description?.match(/Monthly Income:\s*₹?([\d,.]+)/i);
+    const monthlyIncome =
+      r.monthly_income !== undefined && r.monthly_income !== null
+        ? roundMoney(Number(r.monthly_income))
+        : incomeMatch
+        ? roundMoney(parseFloat(incomeMatch[1].replace(/,/g, '')))
+        : undefined;
+
+    return {
+      id: r.id,
+      userId: r.user_id,
+      name: r.name,
+      accountType: r.account_type as AccountType,
+      openingBalance: roundMoney(r.opening_balance),
+      currentBalance: roundMoney(r.current_balance),
+      monthlyIncome,
+      icon: r.icon || 'Landmark',
+      description: r.description || undefined,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  });
 
   const receipts: ReceiptRecord[] = (receiptsRes.data || []).map((r: any) => ({
     id: r.id,
@@ -230,6 +242,12 @@ export async function createAccountServerAction(input: z.infer<typeof AccountInp
   if (!user) return { success: false, error: 'Not authenticated' };
 
   const opening = roundMoney(parsed.data.openingBalance);
+  let desc = parsed.data.description || '';
+  if (parsed.data.monthlyIncome !== undefined && parsed.data.monthlyIncome > 0) {
+    const incomeStr = `Monthly Income: ₹${roundMoney(parsed.data.monthlyIncome)}`;
+    desc = desc ? `${desc} • ${incomeStr}` : incomeStr;
+  }
+
   const { data, error } = await supabase
     .from('accounts')
     .insert({
@@ -239,7 +257,7 @@ export async function createAccountServerAction(input: z.infer<typeof AccountInp
       opening_balance: opening,
       current_balance: opening,
       icon: parsed.data.icon,
-      description: parsed.data.description || null,
+      description: desc || null,
     })
     .select('*')
     .single();

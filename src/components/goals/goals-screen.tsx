@@ -282,23 +282,24 @@ export function GoalsScreen() {
     <div className="space-y-4 pb-6">
       {/* Editorial Top Header */}
       <div className="flex items-center justify-between pt-1">
-        <div>
-          <h1 className="text-[24px] leading-tight font-normal tracking-tight text-[#191B19]">
-            Savings{' '}
-            <span className="inline-flex items-center justify-center align-middle w-8 h-6 rounded-full bg-[#DFFF52] mx-0.5">
-              <Target className="w-3.5 h-3.5 text-[#191B19]" />
-            </span>{' '}
-            &amp; Goals
-          </h1>
-          <p className="text-xs text-[#777F77] mt-0.5">
-            Allocate funds for upcoming personal purchases
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-[#DFFF52] text-[#191B19] flex items-center justify-center shrink-0 shadow-xs">
+            <Target className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-[#191B19]">
+              Savings &amp; Goals
+            </h1>
+            <p className="text-xs text-[#777F77] mt-0.5">
+              Allocate funds for upcoming personal purchases
+            </p>
+          </div>
         </div>
 
         <button
           type="button"
           onClick={openCreateGoalModal}
-          className="px-3.5 py-2 rounded-full bg-[#191B19] text-white text-xs font-semibold inline-flex items-center gap-1.5 active:scale-95 transition-transform"
+          className="px-3.5 py-2 rounded-full bg-[#191B19] text-white text-xs font-semibold inline-flex items-center gap-1.5 active:scale-95 transition-transform shadow-xs"
         >
           <Plus className="w-3.5 h-3.5 text-[#DFFF52]" />
           <span>New Goal</span>
@@ -548,14 +549,16 @@ export function GoalsScreen() {
       >
         <form onSubmit={handleSaveGoal} className="space-y-4">
           {formError && (
-            <div className="p-3 rounded-2xl bg-[#FFEFEF] border border-[#F5C2C7] text-xs text-[#B42318]">
-              {formError}
+            <div className="p-3.5 rounded-2xl bg-[#FFEFEF] border border-[#F5C2C7] text-xs text-[#B42318] flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#E5484D] shrink-0" />
+              <span>{formError}</span>
             </div>
           )}
 
-          <div className="bg-white rounded-[24px] p-4 border border-[#E7EBE5] space-y-3.5">
+          {/* Section 1: Goal Information */}
+          <div className="bg-white rounded-[24px] p-5 border border-[#E7EBE5] shadow-xs space-y-4">
             <div>
-              <label className="block text-[11px] font-medium text-[#777F77] mb-1">
+              <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
                 Goal Name *
               </label>
               <input
@@ -563,44 +566,49 @@ export function GoalsScreen() {
                 required
                 value={goalName}
                 onChange={(e) => setGoalName(e.target.value)}
-                placeholder="e.g. iPhone 16 Pro, MacBook Air, Vacation"
-                className="w-full px-3.5 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-medium text-[#191B19]"
+                placeholder="e.g. iPhone 16 Pro, MacBook, Japan Trip"
+                className="w-full h-12 px-4 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-medium text-[#191B19] placeholder:text-[#9BA39B] focus:outline-none focus:border-[#191B19] focus:ring-1 focus:ring-[#191B19] transition-all"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] font-medium text-[#777F77] mb-1">
-                  Target Amount ({currency}) *
+                <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
+                  Target ({currency}) *
                 </label>
-                <input
-                  type="number"
-                  required
-                  min="1"
-                  step="0.01"
-                  value={targetAmount}
-                  onChange={(e) => setTargetAmount(e.target.value)}
-                  placeholder="80000"
-                  className="w-full px-3.5 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-semibold text-[#191B19]"
-                />
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777F77]">
+                    {currency === 'INR' ? '₹' : currency}
+                  </span>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    step="0.01"
+                    value={targetAmount}
+                    onChange={(e) => setTargetAmount(e.target.value)}
+                    placeholder="80000"
+                    className="w-full h-12 pl-8 pr-3.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-semibold text-[#191B19] placeholder:text-[#9BA39B] focus:outline-none focus:border-[#191B19] focus:ring-1 focus:ring-[#191B19] transition-all"
+                  />
+                </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-[#777F77] mb-1">
-                  Target Date (Optional)
+                <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
+                  Target Date
                 </label>
                 <input
                   type="date"
                   value={targetDate}
                   onChange={(e) => setTargetDate(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs text-[#191B19]"
+                  className="w-full h-12 px-3 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs font-semibold text-[#191B19] focus:outline-none focus:border-[#191B19] transition-all"
                 />
               </div>
             </div>
 
             {/* Goal Icon Picker */}
             <div>
-              <label className="block text-[11px] font-medium text-[#777F77] mb-1.5">
+              <label className="block text-xs font-semibold text-[#191B19] mb-2">
                 Goal Icon
               </label>
               <div className="grid grid-cols-5 gap-2">
@@ -611,14 +619,14 @@ export function GoalsScreen() {
                       key={item.id}
                       type="button"
                       onClick={() => setGoalIcon(item.id)}
-                      className={`p-2.5 rounded-2xl border flex flex-col items-center gap-1 transition-all ${
+                      className={`h-16 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
                         selected
-                          ? 'bg-[#191B19] border-[#191B19] text-[#DFFF52]'
-                          : 'bg-[#F5F7F3] border-[#E7EBE5] text-[#191B19]'
+                          ? 'bg-[#191B19] border-[#191B19] text-[#DFFF52] shadow-xs'
+                          : 'bg-[#F5F7F3] border-[#E7EBE5] text-[#191B19] hover:bg-white hover:border-[#191B19]'
                       }`}
                     >
-                      <PwIcon name={item.icon} className="w-4 h-4" />
-                      <span className="text-[9px] font-medium truncate w-full text-center text-current">
+                      <PwIcon name={item.icon} className="w-5 h-5 shrink-0" />
+                      <span className="text-[9px] font-medium truncate w-full px-1 text-center text-current">
                         {item.label.split(' ')[0]}
                       </span>
                     </button>
@@ -628,38 +636,46 @@ export function GoalsScreen() {
             </div>
           </div>
 
-          {/* Initial Contribution (Only when creating a new goal) */}
+          {/* Section 2: Initial Contribution (Only when creating a new goal) */}
           {!editingGoal && (
-            <div className="bg-white rounded-[24px] p-4 border border-[#E7EBE5] space-y-3">
+            <div className="bg-white rounded-[24px] p-5 border border-[#E7EBE5] shadow-xs space-y-4">
               <div>
-                <label className="block text-[11px] font-medium text-[#777F77] mb-1">
-                  Initial Contribution (Optional)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={initialContribution}
-                  onChange={(e) => setInitialContribution(e.target.value)}
-                  placeholder="e.g. 15000"
-                  className="w-full px-3.5 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-semibold text-[#191B19]"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-[#191B19]">
+                    Initial Contribution ({currency})
+                  </label>
+                  <span className="text-[11px] text-[#777F77]">Optional</span>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777F77]">
+                    {currency === 'INR' ? '₹' : currency}
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={initialContribution}
+                    onChange={(e) => setInitialContribution(e.target.value)}
+                    placeholder="e.g. 15000"
+                    className="w-full h-12 pl-8 pr-3.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-semibold text-[#191B19] placeholder:text-[#9BA39B] focus:outline-none focus:border-[#191B19] focus:ring-1 focus:ring-[#191B19] transition-all"
+                  />
+                </div>
               </div>
 
               {parseFloat(initialContribution) > 0 && (
-                <div>
-                  <label className="block text-[11px] font-medium text-[#777F77] mb-1">
-                    Source Account for Initial Contribution *
+                <div className="animate-fadeIn">
+                  <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
+                    Source Account *
                   </label>
                   {accounts.length === 0 ? (
                     <p className="text-xs text-[#E5484D]">
-                      Please create an account first before adding an initial contribution.
+                      Please create an account first before allocating initial funds.
                     </p>
                   ) : (
                     <select
                       value={initialSourceAccId}
                       onChange={(e) => setInitialSourceAccId(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs font-semibold text-[#191B19]"
+                      className="w-full h-12 px-3.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs font-semibold text-[#191B19] focus:outline-none focus:border-[#191B19] transition-all"
                     >
                       {accounts.map((acc) => (
                         <option key={acc.id} value={acc.id}>
@@ -680,7 +696,7 @@ export function GoalsScreen() {
                 <button
                   type="button"
                   onClick={() => setConfirmDeleteGoalId(editingGoal.id)}
-                  className="text-xs font-semibold text-[#E5484D] inline-flex items-center gap-1"
+                  className="text-xs font-semibold text-[#E5484D] hover:underline inline-flex items-center gap-1.5"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Delete Goal</span>
@@ -701,7 +717,7 @@ export function GoalsScreen() {
                         setIsDeletingGoal(false);
                       }
                     }}
-                    className="px-3 py-1.5 rounded-full bg-[#E5484D] text-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-50"
+                    className="px-3.5 py-2 rounded-full bg-[#E5484D] text-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-50 active:scale-95 transition-all shadow-xs"
                   >
                     {isDeletingGoal && <PwSpinner className="w-3 h-3 text-white" />}
                     <span>{isDeletingGoal ? 'Deleting...' : 'Confirm Delete'}</span>
@@ -710,7 +726,7 @@ export function GoalsScreen() {
                     type="button"
                     disabled={isDeletingGoal}
                     onClick={() => setConfirmDeleteGoalId(null)}
-                    className="px-3 py-1.5 rounded-full bg-white border border-[#E7EBE5] text-xs font-semibold disabled:opacity-50"
+                    className="px-3.5 py-2 rounded-full bg-white border border-[#E7EBE5] text-xs font-semibold disabled:opacity-50 active:scale-95 transition-all"
                   >
                     Cancel
                   </button>
@@ -722,7 +738,7 @@ export function GoalsScreen() {
           <button
             type="submit"
             disabled={isSavingGoal || isDeletingGoal}
-            className="w-full py-4 rounded-full bg-[#191B19] text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+            className="w-full h-13 rounded-full bg-[#191B19] hover:bg-[#252825] text-white text-sm font-semibold flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] transition-all disabled:opacity-50"
           >
             {isSavingGoal ? (
               <PwSpinner className="w-4 h-4 text-[#DFFF52]" />

@@ -54,6 +54,7 @@ export interface Account {
   accountType: AccountType;
   openingBalance: number;
   currentBalance: number;
+  monthlyIncome?: number;
   icon: string;
   description?: string;
   createdAt: string;

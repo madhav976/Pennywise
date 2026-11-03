@@ -61,6 +61,7 @@ export function AccountsScreen() {
   const [name, setName] = useState('');
   const [accountType, setAccountType] = useState<AccountType>('salary');
   const [openingBalance, setOpeningBalance] = useState('');
+  const [monthlyIncome, setMonthlyIncome] = useState('');
   const [icon, setIcon] = useState('Landmark');
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
@@ -80,6 +81,7 @@ export function AccountsScreen() {
     setName(preset?.name || '');
     setAccountType(preset?.type || 'salary');
     setOpeningBalance('');
+    setMonthlyIncome('');
     setIcon(preset?.icon || 'Landmark');
     setDescription('');
     setFormError(null);
@@ -94,6 +96,7 @@ export function AccountsScreen() {
     setName(acc.name);
     setAccountType(acc.accountType);
     setOpeningBalance(String(acc.openingBalance));
+    setMonthlyIncome(acc.monthlyIncome ? String(acc.monthlyIncome) : '');
     setIcon(acc.icon || 'Landmark');
     setDescription(acc.description || '');
     setFormError(null);
@@ -111,6 +114,16 @@ export function AccountsScreen() {
     const parsedOpening = parseFloat(openingBalance || '0');
     if (isNaN(parsedOpening) || parsedOpening < 0) {
       setFormError('Opening balance must be 0 or greater.');
+      return;
+    }
+
+    const parsedIncome = monthlyIncome.trim() ? parseFloat(monthlyIncome) : undefined;
+    if (
+      accountType === 'salary' &&
+      parsedIncome !== undefined &&
+      (isNaN(parsedIncome) || parsedIncome < 0)
+    ) {
+      setFormError('Monthly income must be 0 or greater.');
       return;
     }
 
@@ -136,6 +149,7 @@ export function AccountsScreen() {
         name,
         accountType,
         openingBalance: roundMoney(parsedOpening),
+        monthlyIncome: accountType === 'salary' ? parsedIncome : undefined,
         icon,
         description: description.trim() || undefined,
       });
@@ -201,23 +215,24 @@ export function AccountsScreen() {
     <div className="space-y-4 pb-6">
       {/* Editorial Top Header */}
       <div className="flex items-center justify-between pt-1">
-        <div>
-          <h1 className="text-[24px] leading-tight font-normal tracking-tight text-[#191B19]">
-            Financial{' '}
-            <span className="inline-flex items-center justify-center align-middle w-8 h-6 rounded-full bg-[#DFFF52] mx-0.5">
-              <Landmark className="w-3.5 h-3.5 text-[#191B19]" />
-            </span>{' '}
-            Accounts
-          </h1>
-          <p className="text-xs text-[#777F77] mt-0.5">
-            Manage balances across banks, cards &amp; cash wallets
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-[#DFFF52] text-[#191B19] flex items-center justify-center shrink-0 shadow-xs">
+            <Landmark className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-[#191B19]">
+              Financial Accounts
+            </h1>
+            <p className="text-xs text-[#777F77] mt-0.5">
+              Manage balances across banks, cards &amp; cash wallets
+            </p>
+          </div>
         </div>
 
         <button
           type="button"
           onClick={() => openCreateAccountModal()}
-          className="px-3.5 py-2 rounded-full bg-[#191B19] text-white text-xs font-semibold inline-flex items-center gap-1.5 active:scale-95 transition-transform"
+          className="px-3.5 py-2 rounded-full bg-[#191B19] text-white text-xs font-semibold inline-flex items-center gap-1.5 active:scale-95 transition-transform shadow-xs"
         >
           <Plus className="w-3.5 h-3.5 text-[#DFFF52]" />
           <span>Add Account</span>
@@ -444,9 +459,9 @@ export function AccountsScreen() {
             </div>
           )}
 
-          <div className="bg-white rounded-[24px] p-4 border border-[#E7EBE5] space-y-3.5">
+          <div className="bg-white rounded-[24px] p-5 border border-[#E7EBE5] shadow-xs space-y-4">
             <div>
-              <label className="block text-[11px] font-medium text-[#777F77] mb-1">
+              <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
                 Account Name *
               </label>
               <input
@@ -455,19 +470,19 @@ export function AccountsScreen() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Salary Account, Cash Wallet"
-                className="w-full px-3.5 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-medium text-[#191B19]"
+                className="w-full h-12 px-4 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-medium text-[#191B19] placeholder:text-[#9BA39B] focus:outline-none focus:border-[#191B19] focus:ring-1 focus:ring-[#191B19] transition-all"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] font-medium text-[#777F77] mb-1">
+                <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
                   Account Type *
                 </label>
                 <select
                   value={accountType}
                   onChange={(e) => setAccountType(e.target.value as AccountType)}
-                  className="w-full px-3 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs font-semibold text-[#191B19]"
+                  className="w-full h-12 px-3.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs font-semibold text-[#191B19] focus:outline-none focus:border-[#191B19] transition-all"
                 >
                   {ACCOUNT_TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -478,25 +493,59 @@ export function AccountsScreen() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-[#777F77] mb-1">
+                <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
                   Opening Balance ({currency}) *
                 </label>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  step="0.01"
-                  value={openingBalance}
-                  onChange={(e) => setOpeningBalance(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full px-3.5 py-2.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-semibold text-[#191B19]"
-                />
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777F77]">
+                    {currency === 'INR' ? '₹' : currency}
+                  </span>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="0.01"
+                    value={openingBalance}
+                    onChange={(e) => setOpeningBalance(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full h-12 pl-8 pr-3.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-semibold text-[#191B19] placeholder:text-[#9BA39B] focus:outline-none focus:border-[#191B19] focus:ring-1 focus:ring-[#191B19] transition-all"
+                  />
+                </div>
               </div>
             </div>
 
+            {/* Monthly Income Field for Salary Accounts */}
+            {accountType === 'salary' && (
+              <div className="pt-0.5 animate-fadeIn">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-[#191B19]">
+                    Monthly Income ({currency})
+                  </label>
+                  <span className="text-[11px] text-[#777F77]">Optional</span>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-[#777F77]">
+                    {currency === 'INR' ? '₹' : currency}
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={monthlyIncome}
+                    onChange={(e) => setMonthlyIncome(e.target.value)}
+                    placeholder="e.g. 50000"
+                    className="w-full h-12 pl-8 pr-3.5 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-sm font-semibold text-[#191B19] placeholder:text-[#9BA39B] focus:outline-none focus:border-[#191B19] focus:ring-1 focus:ring-[#191B19] transition-all"
+                  />
+                </div>
+                <p className="text-[11px] text-[#777F77] mt-1">
+                  Saved as your account salary profile; opening balance remains unchanged.
+                </p>
+              </div>
+            )}
+
             {/* Icon Selector */}
             <div>
-              <label className="block text-[11px] font-medium text-[#777F77] mb-1.5">
+              <label className="block text-xs font-semibold text-[#191B19] mb-2">
                 Account Icon
               </label>
               <div className="grid grid-cols-4 gap-2">
@@ -507,13 +556,13 @@ export function AccountsScreen() {
                       key={item.id}
                       type="button"
                       onClick={() => setIcon(item.id)}
-                      className={`p-2.5 rounded-2xl border flex flex-col items-center gap-1 transition-all ${
+                      className={`h-14 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
                         selected
-                          ? 'bg-[#191B19] border-[#191B19] text-[#DFFF52]'
-                          : 'bg-[#F5F7F3] border-[#E7EBE5] text-[#191B19]'
+                          ? 'bg-[#191B19] border-[#191B19] text-[#DFFF52] shadow-xs'
+                          : 'bg-[#F5F7F3] border-[#E7EBE5] text-[#191B19] hover:bg-white hover:border-[#191B19]'
                       }`}
                     >
-                      <PwIcon name={item.id} className="w-4 h-4" />
+                      <PwIcon name={item.id} className="w-4 h-4 shrink-0" />
                       <span className="text-[10px] font-medium">{item.label}</span>
                     </button>
                   );
@@ -522,15 +571,15 @@ export function AccountsScreen() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-[#777F77] mb-1">
+              <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
                 Description (Optional)
               </label>
               <input
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="e.g. Primary HDFC checking account"
-                className="w-full px-3.5 py-2 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs text-[#191B19]"
+                placeholder="e.g. Primary HDFC salary checking account"
+                className="w-full h-12 px-4 rounded-2xl bg-[#F5F7F3] border border-[#E7EBE5] text-xs font-medium text-[#191B19] placeholder:text-[#9BA39B] focus:outline-none focus:border-[#191B19] transition-all"
               />
             </div>
           </div>

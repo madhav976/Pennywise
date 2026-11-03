@@ -118,6 +118,7 @@ interface PennywiseContextValue {
     name: string;
     accountType: AccountType;
     openingBalance: number;
+    monthlyIncome?: number;
     icon: string;
     description?: string;
   }) => Promise<{ ok: boolean; error?: string; account?: Account }>;
@@ -796,6 +797,7 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
       name: string;
       accountType: AccountType;
       openingBalance: number;
+      monthlyIncome?: number;
       icon: string;
       description?: string;
     }) => {
@@ -813,10 +815,16 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: `An account named "${trimmedName}" already exists.` };
       }
 
+      const parsedMonthlyIncome =
+        input.monthlyIncome !== undefined && !isNaN(input.monthlyIncome)
+          ? roundMoney(Math.max(0, input.monthlyIncome))
+          : undefined;
+
       const serverRes = await createAccountServerAction({
         name: trimmedName,
         accountType: input.accountType,
         openingBalance: roundMoney(input.openingBalance),
+        monthlyIncome: parsedMonthlyIncome,
         icon: input.icon || 'Landmark',
         description: input.description?.trim(),
       });
@@ -833,6 +841,7 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
         accountType: input.accountType,
         openingBalance: roundMoney(input.openingBalance),
         currentBalance: roundMoney(input.openingBalance),
+        monthlyIncome: parsedMonthlyIncome,
         icon: input.icon || 'Landmark',
         description: input.description?.trim() || undefined,
         createdAt: now,

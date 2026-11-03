@@ -105,23 +105,24 @@ export function TransactionsScreen() {
     <div className="space-y-4 pb-6">
       {/* Editorial Top Header */}
       <div className="flex items-center justify-between pt-1">
-        <div>
-          <h1 className="text-[24px] leading-tight font-normal tracking-tight text-[#191B19]">
-            Spending{' '}
-            <span className="inline-flex items-center justify-center align-middle w-8 h-6 rounded-full bg-[#DFFF52] mx-0.5">
-              <Sparkles className="w-3.5 h-3.5 text-[#191B19]" />
-            </span>{' '}
-            &amp; Activity
-          </h1>
-          <p className="text-xs text-[#777F77] mt-0.5">
-            Chronological history &amp; real-time analytics
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-[#DFFF52] text-[#191B19] flex items-center justify-center shrink-0 shadow-xs">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-[#191B19]">
+              Spending &amp; Activity
+            </h1>
+            <p className="text-xs text-[#777F77] mt-0.5">
+              Chronological history &amp; real-time analytics
+            </p>
+          </div>
         </div>
 
         <button
           type="button"
           onClick={() => openAddFlow('chooser')}
-          className="px-3.5 py-2 rounded-full bg-[#191B19] text-white text-xs font-semibold inline-flex items-center gap-1.5 active:scale-95 transition-transform"
+          className="px-3.5 py-2 rounded-full bg-[#191B19] text-white text-xs font-semibold inline-flex items-center gap-1.5 active:scale-95 transition-transform shadow-xs"
         >
           <Plus className="w-3.5 h-3.5 text-[#DFFF52]" />
           <span>Add</span>
