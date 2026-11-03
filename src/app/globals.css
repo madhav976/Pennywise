@@ -64,6 +64,27 @@ body {
   }
 }
 
+@keyframes sheetSlideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-sheetSlideUp {
+  animation: sheetSlideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 @keyframes slideUp {
   from {
     transform: translateY(16px);
@@ -157,6 +178,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .animate-fadeIn,
   .animate-slideUp,
+  .animate-sheetSlideUp,
   .animate-pageEnter,
   .animate-viewEnter,
   .animate-cameraScanSweep,

@@ -186,3 +186,4 @@ Grand Total: 2500.00`;
     expect(extraction.confidence?.totalAmount).toBeLessThan(0.5);
   });
 });
+

@@ -450,8 +450,29 @@ export function AccountsScreen() {
         onClose={() => setIsModalOpen(false)}
         title={editingAccount ? 'Edit Account' : 'Create Financial Account'}
         subtitle="Configure account type, opening balance, and visual badge"
+        footer={
+          <button
+            type="submit"
+            form="account-form"
+            disabled={isSavingAccount || isDeletingAccount}
+            className="w-full h-[52px] rounded-full bg-[#191B19] hover:bg-[#252825] text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-xs active:scale-[0.98] transition-all disabled:opacity-50"
+          >
+            {isSavingAccount ? (
+              <PwSpinner className="w-4 h-4 text-[#DFFF52]" />
+            ) : (
+              <Check className="w-4 h-4 text-[#DFFF52]" />
+            )}
+            <span>
+              {isSavingAccount
+                ? 'Saving Account...'
+                : editingAccount
+                ? 'Save Account Changes'
+                : 'Create Account'}
+            </span>
+          </button>
+        }
       >
-        <form onSubmit={handleSaveAccount} className="space-y-4">
+        <form id="account-form" onSubmit={handleSaveAccount} className="space-y-4">
           {formError && (
             <div className="p-3 rounded-2xl bg-[#FFEFEF] border border-[#F5C2C7] text-xs text-[#B42318] flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -633,25 +654,6 @@ export function AccountsScreen() {
               })()}
             </div>
           )}
-
-          <button
-            type="submit"
-            disabled={isSavingAccount || isDeletingAccount}
-            className="w-full py-4 rounded-full bg-[#191B19] text-white text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {isSavingAccount ? (
-              <PwSpinner className="w-4 h-4 text-[#DFFF52]" />
-            ) : (
-              <Check className="w-4 h-4 text-[#DFFF52]" />
-            )}
-            <span>
-              {isSavingAccount
-                ? 'Saving Account...'
-                : editingAccount
-                ? 'Save Account Changes'
-                : 'Create Account'}
-            </span>
-          </button>
         </form>
       </MobileBottomSheet>
 

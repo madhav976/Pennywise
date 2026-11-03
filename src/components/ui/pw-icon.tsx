@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -299,8 +300,22 @@ export function CardListSkeleton({ count = 3 }: { count?: number }) {
   );
 }
 
+export interface MobileBottomSheetProps {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+  maxHeight?: string;
+  footer?: React.ReactNode;
+  hideScrollbar?: boolean;
+  className?: string;
+}
+
 /**
- * Mobile Bottom Sheet Modal container optimized for 360px-430px viewports
+ * Production-ready Mobile Bottom Sheet Modal rendered via React Portal directly into document.body.
+ * Ensures 100% viewport alignment, independent of parent overflow or transforms, and covers
+ * fixed navigation bars with proper z-index and safe-area insets.
  */
 export function MobileBottomSheet({
   isOpen,
@@ -308,15 +323,31 @@ export function MobileBottomSheet({
   title,
   subtitle,
   children,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-}) {
+  maxHeight = 'max-h-[88dvh]',
+  footer,
+  hideScrollbar = true,
+  className,
+}: MobileBottomSheetProps) {
+  const [mounted, setMounted] = React.useState(false);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
   React.useEffect(() => {
     if (!isOpen) return;
+
+    // Reset scroll position to top whenever sheet opens
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
+    const rafId = requestAnimationFrame(() => {
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+      }
+    });
+
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
@@ -325,57 +356,75 @@ export function MobileBottomSheet({
         onClose();
       }
     }
+
     window.addEventListener('keydown', handleKeyDown);
     return () => {
+      cancelAnimationFrame(rafId);
       document.body.style.overflow = originalOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-center bg-[#191B19]/50 backdrop-blur-[3px] animate-fadeIn">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex flex-col justify-end items-center bg-[#191B19]/60 backdrop-blur-[4px] animate-fadeIn"
+      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-[430px] flex flex-col justify-end h-full"
-        onClick={onClose}
+        className={`w-full max-w-[430px] mx-auto bg-[#F5F7F3] rounded-t-[32px] sm:rounded-t-[36px] border-t border-[#E7EBE5] shadow-2xl flex flex-col overflow-hidden animate-sheetSlideUp max-h-[88vh] ${maxHeight} ${
+          className || ''
+        }`}
+        onClick={(e) => e.stopPropagation()}
       >
-        <div
-          className="bg-[#F5F7F3] rounded-t-[36px] border-t border-[#E7EBE5] shadow-pw-elevated max-h-[90dvh] flex flex-col overflow-hidden animate-slideUp"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Drag Handle */}
-          <div className="pt-3.5 pb-1 flex justify-center">
-            <div className="w-12 h-1.5 rounded-full bg-[#D0D7CC]" />
-          </div>
-
-          {/* Header */}
-          <div className="px-5 pt-2 pb-3.5 flex items-start justify-between border-b border-[#E7EBE5] shrink-0">
-            <div className="pr-2">
-              <h3 className="text-lg font-bold text-[#191B19] tracking-tight">
-                {title}
-              </h3>
-              {subtitle && (
-                <p className="text-xs text-[#777F77] mt-0.5 leading-relaxed">{subtitle}</p>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close modal"
-              className="w-8 h-8 rounded-full bg-white border border-[#E7EBE5] flex items-center justify-center text-[#191B19] hover:bg-[#EBF0E9] active:scale-95 transition-all shadow-xs shrink-0"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Scrollable Body */}
-          <div className="px-5 py-4 overflow-y-auto overscroll-contain space-y-4 pb-10 flex-1">
-            {children}
-          </div>
+        {/* Drag Handle */}
+        <div className="pt-3 pb-1 flex justify-center shrink-0">
+          <div className="w-12 h-1.5 rounded-full bg-[#D0D7CC]" />
         </div>
+
+        {/* Header */}
+        <div className="px-5 pt-1.5 pb-3 flex items-start justify-between border-b border-[#E7EBE5] shrink-0 bg-[#F5F7F3]">
+          <div className="pr-3 min-w-0">
+            <h3 className="text-base sm:text-lg font-bold text-[#191B19] tracking-tight truncate">
+              {title}
+            </h3>
+            {subtitle && (
+              <p className="text-xs text-[#777F77] mt-0.5 leading-relaxed truncate">
+                {subtitle}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close modal"
+            className="w-8 h-8 rounded-full bg-white border border-[#E7EBE5] flex items-center justify-center text-[#191B19] hover:bg-[#EBF0E9] active:scale-95 transition-all shadow-xs shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Scrollable Content Area */}
+        <div
+          ref={scrollContainerRef}
+          className={`px-5 py-4 overflow-y-auto overscroll-contain space-y-4 flex-1 ${
+            hideScrollbar ? 'hide-scrollbar' : ''
+          } ${footer ? 'pb-3' : 'pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))]'}`}
+        >
+          {children}
+        </div>
+
+        {/* Optional Sticky Footer for CTA buttons */}
+        {footer && (
+          <div className="px-5 py-3 border-t border-[#E7EBE5] bg-white shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+            {footer}
+          </div>
+        )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

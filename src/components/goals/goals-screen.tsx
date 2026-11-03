@@ -546,8 +546,66 @@ export function GoalsScreen() {
         onClose={() => setIsCreateOpen(false)}
         title={editingGoal ? 'Edit Savings Goal' : 'Create a Savings Goal'}
         subtitle="Set your target amount, timeline, and optional initial allocation"
+        maxHeight="max-h-[88dvh]"
+        footer={
+          <div className="space-y-2">
+            {editingGoal && confirmDeleteGoalId === editingGoal.id && (
+              <div className="flex items-center justify-between pb-2 border-b border-[#E7EBE5]">
+                <span className="text-xs text-[#E5484D] font-medium">Are you sure?</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isDeletingGoal}
+                    onClick={async () => {
+                      if (isDeletingGoal) return;
+                      setIsDeletingGoal(true);
+                      try {
+                        await deleteGoal(editingGoal.id);
+                        setConfirmDeleteGoalId(null);
+                        setIsCreateOpen(false);
+                      } finally {
+                        setIsDeletingGoal(false);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-full bg-[#E5484D] text-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-50 active:scale-95 transition-all shadow-xs"
+                  >
+                    {isDeletingGoal && <PwSpinner className="w-3 h-3 text-white" />}
+                    <span>{isDeletingGoal ? 'Deleting...' : 'Confirm Delete'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isDeletingGoal}
+                    onClick={() => setConfirmDeleteGoalId(null)}
+                    className="px-3 py-1.5 rounded-full bg-white border border-[#E7EBE5] text-xs font-semibold disabled:opacity-50 active:scale-95 transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            <button
+              type="submit"
+              form="savings-goal-form"
+              disabled={isSavingGoal || isDeletingGoal}
+              className="w-full h-[52px] rounded-full bg-[#191B19] hover:bg-[#252825] text-white text-sm font-semibold flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] transition-all disabled:opacity-50"
+            >
+              {isSavingGoal ? (
+                <PwSpinner className="w-4 h-4 text-[#DFFF52]" />
+              ) : (
+                <Check className="w-4 h-4 text-[#DFFF52]" />
+              )}
+              <span>
+                {isSavingGoal
+                  ? 'Saving Goal...'
+                  : editingGoal
+                  ? 'Save Changes'
+                  : 'Create Savings Goal'}
+              </span>
+            </button>
+          </div>
+        }
       >
-        <form onSubmit={handleSaveGoal} className="space-y-4">
+        <form id="savings-goal-form" onSubmit={handleSaveGoal} className="space-y-4">
           {formError && (
             <div className="p-3.5 rounded-2xl bg-[#FFEFEF] border border-[#F5C2C7] text-xs text-[#B42318] flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-[#E5484D] shrink-0" />
@@ -555,8 +613,8 @@ export function GoalsScreen() {
             </div>
           )}
 
-          {/* Section 1: Goal Information */}
-          <div className="bg-white rounded-[24px] p-5 border border-[#E7EBE5] shadow-xs space-y-4">
+          {/* Section 1: Goal Details */}
+          <div className="bg-white rounded-[24px] p-4.5 border border-[#E7EBE5] shadow-xs space-y-3.5">
             <div>
               <label className="block text-xs font-semibold text-[#191B19] mb-1.5">
                 Goal Name *
@@ -605,40 +663,43 @@ export function GoalsScreen() {
                 />
               </div>
             </div>
+          </div>
 
-            {/* Goal Icon Picker */}
-            <div>
-              <label className="block text-xs font-semibold text-[#191B19] mb-2">
+          {/* Section 2: Goal Icon Selection Grid */}
+          <div className="bg-white rounded-[24px] p-4.5 border border-[#E7EBE5] shadow-xs space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-[#191B19]">
                 Goal Icon
               </label>
-              <div className="grid grid-cols-5 gap-2">
-                {GOAL_ICONS.map((item) => {
-                  const selected = goalIcon === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setGoalIcon(item.id)}
-                      className={`h-16 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
-                        selected
-                          ? 'bg-[#191B19] border-[#191B19] text-[#DFFF52] shadow-xs'
-                          : 'bg-[#F5F7F3] border-[#E7EBE5] text-[#191B19] hover:bg-white hover:border-[#191B19]'
-                      }`}
-                    >
-                      <PwIcon name={item.icon} className="w-5 h-5 shrink-0" />
-                      <span className="text-[9px] font-medium truncate w-full px-1 text-center text-current">
-                        {item.label.split(' ')[0]}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <span className="text-[11px] text-[#777F77]">Tap to select badge</span>
+            </div>
+            <div className="grid grid-cols-5 gap-2">
+              {GOAL_ICONS.map((item) => {
+                const selected = goalIcon === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setGoalIcon(item.id)}
+                    className={`min-h-[72px] p-1.5 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all active:scale-95 ${
+                      selected
+                        ? 'bg-[#191B19] border-[#191B19] text-[#DFFF52] shadow-sm ring-2 ring-[#191B19]'
+                        : 'bg-[#F5F7F3] border-[#E7EBE5] text-[#191B19] hover:bg-white hover:border-[#191B19]'
+                    }`}
+                  >
+                    <PwIcon name={item.icon} className="w-5 h-5 shrink-0" />
+                    <span className="text-[10px] font-medium leading-[1.2] text-center text-current line-clamp-2 px-0.5 break-words tracking-tight">
+                      {item.label}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Section 2: Initial Contribution (Only when creating a new goal) */}
+          {/* Section 3: Initial Contribution (Only when creating a new goal) */}
           {!editingGoal && (
-            <div className="bg-white rounded-[24px] p-5 border border-[#E7EBE5] shadow-xs space-y-4">
+            <div className="bg-white rounded-[24px] p-4.5 border border-[#E7EBE5] shadow-xs space-y-3.5">
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-xs font-semibold text-[#191B19]">
@@ -690,69 +751,18 @@ export function GoalsScreen() {
             </div>
           )}
 
-          {editingGoal && (
+          {editingGoal && confirmDeleteGoalId !== editingGoal.id && (
             <div className="flex items-center justify-between pt-1">
-              {confirmDeleteGoalId !== editingGoal.id ? (
-                <button
-                  type="button"
-                  onClick={() => setConfirmDeleteGoalId(editingGoal.id)}
-                  className="text-xs font-semibold text-[#E5484D] hover:underline inline-flex items-center gap-1.5"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Delete Goal</span>
-                </button>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={isDeletingGoal}
-                    onClick={async () => {
-                      if (isDeletingGoal) return;
-                      setIsDeletingGoal(true);
-                      try {
-                        await deleteGoal(editingGoal.id);
-                        setConfirmDeleteGoalId(null);
-                        setIsCreateOpen(false);
-                      } finally {
-                        setIsDeletingGoal(false);
-                      }
-                    }}
-                    className="px-3.5 py-2 rounded-full bg-[#E5484D] text-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-50 active:scale-95 transition-all shadow-xs"
-                  >
-                    {isDeletingGoal && <PwSpinner className="w-3 h-3 text-white" />}
-                    <span>{isDeletingGoal ? 'Deleting...' : 'Confirm Delete'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isDeletingGoal}
-                    onClick={() => setConfirmDeleteGoalId(null)}
-                    className="px-3.5 py-2 rounded-full bg-white border border-[#E7EBE5] text-xs font-semibold disabled:opacity-50 active:scale-95 transition-all"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteGoalId(editingGoal.id)}
+                className="text-xs font-semibold text-[#E5484D] hover:underline inline-flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Goal</span>
+              </button>
             </div>
           )}
-
-          <button
-            type="submit"
-            disabled={isSavingGoal || isDeletingGoal}
-            className="w-full h-13 rounded-full bg-[#191B19] hover:bg-[#252825] text-white text-sm font-semibold flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] transition-all disabled:opacity-50"
-          >
-            {isSavingGoal ? (
-              <PwSpinner className="w-4 h-4 text-[#DFFF52]" />
-            ) : (
-              <Check className="w-4 h-4 text-[#DFFF52]" />
-            )}
-            <span>
-              {isSavingGoal
-                ? 'Saving Goal...'
-                : editingGoal
-                ? 'Save Changes'
-                : 'Create Savings Goal'}
-            </span>
-          </button>
         </form>
       </MobileBottomSheet>
 
