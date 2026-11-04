@@ -510,6 +510,60 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: 'Please enter both email and password.' };
       }
 
+      // 1. Try server-side login endpoint first to establish HTTP session cookies
+      try {
+        const loginRes = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail, password }),
+        });
+
+        if (loginRes.ok) {
+          const lJson = await loginRes.json();
+          if (lJson.success && lJson.user) {
+            if (isSupabaseConfigured()) {
+              const supabase = createClient();
+              if (supabase) {
+                await supabase.auth.signInWithPassword({
+                  email: cleanEmail,
+                  password,
+                }).catch(() => {});
+              }
+            }
+
+            const profile: UserProfile = {
+              id: lJson.user.id,
+              email: lJson.user.email,
+              fullName: lJson.user.fullName,
+              currency: lJson.user.currency,
+              createdAt: new Date().toISOString(),
+            };
+
+            const ledgerRes = await fetch('/api/ledger');
+            if (ledgerRes.ok) {
+              const ledJson = await ledgerRes.json();
+              if (ledJson.success && ledJson.data) {
+                persistLedger(profile.id, ledJson.data.ledger);
+              }
+            }
+
+            setUser(profile);
+            localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
+            localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(profile));
+            showToast('success', `Welcome back, ${profile.fullName}`);
+            return { ok: true };
+          }
+        } else {
+          const errJson = await loginRes.json().catch(() => ({}));
+          if (loginRes.status === 401 || (errJson.error && !errJson.error.includes('not configured'))) {
+            return { ok: false, error: errJson.error || 'Invalid email or password.' };
+          }
+        }
+      } catch {
+        // Fall back to direct client-side Supabase authentication
+      }
+
+      // 2. Client-side Supabase authentication fallback
       if (isSupabaseConfigured()) {
         const supabase = createClient();
         if (supabase) {
@@ -523,8 +577,6 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
           }
 
           if (data.user) {
-            // Retrieve authoritative user ledger and profile from /api/ledger
-            const ledgerRes = await fetch('/api/ledger');
             let profile: UserProfile = {
               id: data.user.id,
               email: data.user.email || cleanEmail,
@@ -536,6 +588,7 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
               createdAt: data.user.created_at,
             };
 
+            const ledgerRes = await fetch('/api/ledger');
             if (ledgerRes.ok) {
               const lJson = await ledgerRes.json();
               if (lJson.success && lJson.data) {
@@ -578,94 +631,103 @@ export function PennywiseProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: 'Password must be at least 8 characters.' };
       }
 
-      if (isSupabaseConfigured()) {
-        // 1. Call dedicated server signup endpoint to create auth user and insert into public.profiles
-        try {
-          const res = await fetch('/api/auth/signup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              fullName: cleanName,
+      // 1. Call dedicated server signup endpoint to create auth user and insert into public.profiles
+      try {
+        const res = await fetch('/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fullName: cleanName,
+            email: cleanEmail,
+            password,
+            currency,
+          }),
+        });
+
+        const json = await res.json();
+
+        if (!res.ok || !json.success) {
+          return {
+            ok: false,
+            error: json.error || 'Failed to create your account in Supabase.',
+          };
+        }
+
+        // 2. Automatically log in via server login endpoint to establish session cookies
+        const loginRes = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: cleanEmail,
+            password,
+          }),
+        });
+
+        if (loginRes.ok) {
+          const loginData = await loginRes.json();
+          if (loginData.success && loginData.user) {
+            if (isSupabaseConfigured()) {
+              const supabase = createClient();
+              if (supabase) {
+                await supabase.auth.signInWithPassword({
+                  email: cleanEmail,
+                  password,
+                }).catch(() => {});
+              }
+            }
+
+            const profile: UserProfile = {
+              id: loginData.user.id,
               email: cleanEmail,
-              password,
+              fullName: cleanName,
               currency,
-            }),
-          });
-
-          const json = await res.json();
-
-          if (!res.ok || !json.success) {
-            return {
-              ok: false,
-              error: json.error || 'Failed to create your account in Supabase.',
+              createdAt: new Date().toISOString(),
             };
-          }
+            setUser(profile);
+            localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
+            localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(profile));
 
-          // 2. Automatically sign in with password to establish the browser session cookies
-          const supabase = createClient();
-          if (supabase) {
-            const { data: signInData, error: signInError } =
-              await supabase.auth.signInWithPassword({
-                email: cleanEmail,
-                password,
-              });
-
-            if (!signInError && signInData.user) {
-              const profile: UserProfile = {
-                id: signInData.user.id,
-                email: cleanEmail,
-                fullName: cleanName,
-                currency,
-                createdAt: new Date().toISOString(),
-              };
-              setUser(profile);
-              localStorage.removeItem(AUTH_SIGNED_OUT_FLAG_KEY);
-              localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(profile));
-
-              // Fetch synced ledger from server
-              const lRes = await fetch('/api/ledger');
-              if (lRes.ok) {
-                const lJson = await lRes.json();
-                if (lJson.success && lJson.data) {
-                  persistLedger(profile.id, lJson.data.ledger);
-                } else {
-                  persistLedger(profile.id, EMPTY_LEDGER);
-                }
+            const lRes = await fetch('/api/ledger');
+            if (lRes.ok) {
+              const lJson = await lRes.json();
+              if (lJson.success && lJson.data) {
+                persistLedger(profile.id, lJson.data.ledger);
               } else {
                 persistLedger(profile.id, EMPTY_LEDGER);
               }
-
-              showToast('success', 'Account created! Welcome to Pennywise.');
-              return { ok: true, requiresConfirmation: false };
+            } else {
+              persistLedger(profile.id, EMPTY_LEDGER);
             }
+
+            showToast('success', 'Account created! Welcome to Pennywise.');
+            return { ok: true, requiresConfirmation: false };
           }
-
-          // In case session requires email confirmation
-          return {
-            ok: true,
-            requiresConfirmation: Boolean(json.requiresConfirmation),
-          };
-        } catch (apiErr: any) {
-          return {
-            ok: false,
-            error: apiErr?.message || 'Network error connecting to signup service.',
-          };
         }
-      }
 
-      return {
-        ok: false,
-        error: 'Supabase authentication service is not configured.',
-      };
+        return {
+          ok: true,
+          requiresConfirmation: Boolean(json.requiresConfirmation),
+        };
+      } catch (apiErr: any) {
+        return {
+          ok: false,
+          error: apiErr?.message || 'Network error connecting to signup service.',
+        };
+      }
     },
     [persistLedger, showToast]
   );
 
   const signOut = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore network errors on logout
+    }
     if (isSupabaseConfigured()) {
       const supabase = createClient();
       if (supabase) {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut().catch(() => {});
       }
     }
     localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);

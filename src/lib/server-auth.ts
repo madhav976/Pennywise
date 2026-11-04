@@ -117,3 +117,42 @@ export async function getEffectiveServerUser(options?: {
     supabase: adminClient,
   };
 }
+
+export type AuthResult =
+  | { success: true; user: CurrentServerUser; supabase: NonNullable<ReturnType<typeof createAdminSupabase>> }
+  | { success: false; status: 503; error: string }
+  | { success: false; status: 401; error: string };
+
+/**
+ * Requires authentication for API routes, differentiating cleanly between:
+ * - 503: Database service / Supabase credentials not configured
+ * - 401: Unauthenticated request in production
+ */
+export async function requireAuthUser(options?: {
+  allowDevFallback?: boolean;
+}): Promise<AuthResult> {
+  const adminClient = createAdminSupabase();
+  if (!adminClient) {
+    return {
+      success: false,
+      status: 503,
+      error: 'Database service is not configured on the server.',
+    };
+  }
+
+  const auth = await getEffectiveServerUser(options);
+  if (!auth) {
+    return {
+      success: false,
+      status: 401,
+      error: 'Unauthorized: Please sign in to access this resource.',
+    };
+  }
+
+  return {
+    success: true,
+    user: auth.user,
+    supabase: auth.supabase,
+  };
+}
+
